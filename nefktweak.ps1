@@ -2,8 +2,7 @@
 # Check for administrator privileges
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "WARNING: Script is not running as Administrator. Some tweaks may fail." -ForegroundColor Yellow
-    Write-Host "For best results, run PowerShell as Administrator." -ForegroundColor Yellow
+    Write-Host "Run script as Administrator. Some tweaks may not run." -ForegroundColor Yellow
 }
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -1468,29 +1467,41 @@ $appsTooltips = @(
     "Phone link"
 )
 $AppsPanel,$AppsList = New-ChecklistPanel $appsItems $appsTooltips
+# Reduce list height to make room for buttons
+$AppsList.Height = 350
+# Adjust Check All/Uncheck All button positions
+$checkAllBtn = $AppsPanel.Controls | Where-Object {$_.Text -eq "Check All"}
+$uncheckAllBtn = $AppsPanel.Controls | Where-Object {$_.Text -eq "Uncheck All"}
+if ($checkAllBtn) { $checkAllBtn.Location = New-Object System.Drawing.Point(10,360) }
+if ($uncheckAllBtn) { $uncheckAllBtn.Location = New-Object System.Drawing.Point(120,360) }
 $TabApps.Controls.Add($AppsPanel)
 
-# Add Apply/Revert buttons for Remove Apps tab
+# Add Apply/Revert buttons for Remove Apps tab - add to panel, not tab
 $BtnRemoveApps = New-Object System.Windows.Forms.Button
 $BtnRemoveApps.Text = "Remove Selected Apps"
-$BtnRemoveApps.Size = New-Object System.Drawing.Size(200,35)
-$BtnRemoveApps.Location = New-Object System.Drawing.Point(10,450)
+$BtnRemoveApps.Size = New-Object System.Drawing.Size(210,25)
+$BtnRemoveApps.Location = New-Object System.Drawing.Point(10,400)
 $BtnRemoveApps.BackColor = [System.Drawing.Color]::FromArgb(220,20,60)  # Red for removal
 $BtnRemoveApps.FlatStyle = 'Flat'
 $BtnRemoveApps.ForeColor = 'White'
 $BtnRemoveApps.FlatAppearance.BorderSize = 0
+$BtnRemoveApps.Font = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
+$BtnRemoveApps.Cursor = [System.Windows.Forms.Cursors]::Hand
 
 $BtnRestoreApps = New-Object System.Windows.Forms.Button
 $BtnRestoreApps.Text = "Restore All Apps"
-$BtnRestoreApps.Size = New-Object System.Drawing.Size(200,35)
-$BtnRestoreApps.Location = New-Object System.Drawing.Point(220,450)
+$BtnRestoreApps.Size = New-Object System.Drawing.Size(210,25)
+$BtnRestoreApps.Location = New-Object System.Drawing.Point(10,430)
 $BtnRestoreApps.BackColor = [System.Drawing.Color]::DarkGreen
 $BtnRestoreApps.FlatStyle = 'Flat'
 $BtnRestoreApps.ForeColor = 'White'
 $BtnRestoreApps.FlatAppearance.BorderSize = 0
+$BtnRestoreApps.Font = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
+$BtnRestoreApps.Cursor = [System.Windows.Forms.Cursors]::Hand
 
-$TabApps.Controls.Add($BtnRemoveApps)
-$TabApps.Controls.Add($BtnRestoreApps)
+# Add buttons to the panel, not the tab, so they're visible
+$AppsPanel.Controls.Add($BtnRemoveApps)
+$AppsPanel.Controls.Add($BtnRestoreApps)
 
 # ---------- REMOVE APPS FUNCTIONS ----------
 # Universal function to remove AppxPackage properly
@@ -2220,13 +2231,13 @@ $BtnRestore.Add_Click({
             }
         }
         
-        # Reserve space for System Restore (10% of drive, minimum 1GB)
-        Write-Log "Reserving disk space for System Restore (10% of drive)..."
+        # Reserve space for System Restore (10 percent of drive, minimum 1GB)
+        Write-Log "Reserving disk space for System Restore (10 percent of drive)..."
         try {
             # Use vssadmin to resize shadow storage
             $vssResult = vssadmin Resize ShadowStorage /For=$drive /On=$drive /MaxSize=10% 2>&1
             if ($LASTEXITCODE -eq 0) {
-                Write-Log "Successfully reserved 10% of disk space for System Restore on $drive"
+                Write-Log "Successfully reserved 10 percent of disk space for System Restore on $drive"
             } else {
                 # Try alternative: set minimum 1GB
                 Write-Log "Attempting to set minimum 1GB for shadow storage..."
