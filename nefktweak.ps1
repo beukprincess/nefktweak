@@ -1428,7 +1428,11 @@ $appsItems = @(
     "Microsoft Phone Link",
     "Microsoft Outlook",
     "Microsoft Snipping Tool",
-    "Microsoft Clock"
+    "Microsoft Clock",
+    "Microsoft Bing Search",
+    "Sound Recorder",
+    "Sticky Notes",
+    "Web Media Extensions"
 )
 $appsTooltips = @(
     "Cloud storage",
@@ -1470,7 +1474,11 @@ $appsTooltips = @(
     "Phone link",
     "Email client",
     "Screenshot tool",
-    "Alarm clock"
+    "Alarm clock",
+    "Search engine",
+    "Audio recorder",
+    "Note taking",
+    "Media codecs"
 )
 $AppsPanel,$AppsList = New-ChecklistPanel $appsItems $appsTooltips
 # Reduce list height to make room for buttons
@@ -1546,17 +1554,24 @@ function Remove-AppxPackageUniversal {
 }
 
 function Remove-App-0 { # Microsoft OneDrive
-    Write-Log "Removing Microsoft OneDrive..."
+    Write-Log "Removing/Disabling Microsoft OneDrive..."
     try {
         # Stop OneDrive process
         Stop-Process -Name OneDrive -Force -ErrorAction SilentlyContinue
+        Stop-Process -Name "OneDriveSetup" -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
         
-        # Remove for current user
-        Get-AppxPackage | Where-Object {$_.Name -like "*OneDrive*"} | Remove-AppxPackage -ErrorAction SilentlyContinue
+        # Try multiple package name variations
+        $onedrivePackages = @("Microsoft.OneDrive", "OneDrive", "MicrosoftOneDrive")
+        Remove-AppxPackageUniversal -PackageNames $onedrivePackages -DisplayNamePattern "OneDrive"
         
-        # Remove for all users (requires admin)
-        Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*OneDrive*"} | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
+        # Also try direct removal by searching all packages
+        Get-AppxPackage | Where-Object {$_.Name -like "*OneDrive*" -or $_.Publisher -like "*OneDrive*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -ErrorAction SilentlyContinue
+        }
+        Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*OneDrive*" -or $_.Publisher -like "*OneDrive*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+        }
         
         # Remove provisioned packages
         Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*OneDrive*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
@@ -1567,7 +1582,24 @@ function Remove-App-0 { # Microsoft OneDrive
             Start-Process -FilePath $onedrivePath -ArgumentList "/uninstall" -Wait -ErrorAction SilentlyContinue
         }
         
-        Write-Log "Microsoft OneDrive removed"
+        # Remove OneDrive folder
+        $onedriveFolder = "$env:LOCALAPPDATA\Microsoft\OneDrive"
+        if (Test-Path $onedriveFolder) {
+            Remove-Item -Path $onedriveFolder -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        
+        # Disable OneDrive via registry (prevents it from starting)
+        try {
+            New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive" -Force | Out-Null
+            Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive" -Name "DisableFileSyncNGSC" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
+            # Also disable for current user
+            New-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NameSpace\{018D5C66-4533-4307-9B53-224DE2ED1FE6}" -Force -ErrorAction SilentlyContinue | Out-Null
+            Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NameSpace\{018D5C66-4533-4307-9B53-224DE2ED1FE6}" -Recurse -Force -ErrorAction SilentlyContinue
+        } catch {
+            Write-Log "Could not disable OneDrive via registry: $_"
+        }
+        
+        Write-Log "Microsoft OneDrive removed/disabled"
     } catch {
         Write-Log "Error removing OneDrive: $_"
     }
@@ -1576,8 +1608,17 @@ function Remove-App-0 { # Microsoft OneDrive
 function Remove-App-1 { # Microsoft Xbox
     Write-Log "Removing Microsoft Xbox..."
     try {
-        $xboxPackages = @("Microsoft.XboxApp", "Microsoft.XboxGameOverlay", "Microsoft.XboxGamingOverlay", "Microsoft.XboxIdentityProvider", "Microsoft.XboxSpeechToTextOverlay")
+        $xboxPackages = @("Microsoft.XboxApp", "Microsoft.XboxGameOverlay", "Microsoft.XboxGamingOverlay", "Microsoft.XboxIdentityProvider", "Microsoft.XboxSpeechToTextOverlay", "Microsoft.Xbox", "Xbox")
         Remove-AppxPackageUniversal -PackageNames $xboxPackages -DisplayNamePattern "Xbox"
+        # Also try direct removal by searching all packages
+        Get-AppxPackage | Where-Object {$_.Name -like "*Xbox*" -or $_.Publisher -like "*Xbox*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -ErrorAction SilentlyContinue
+        }
+        Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*Xbox*" -or $_.Publisher -like "*Xbox*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+        }
+        # Remove provisioned packages
+        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Xbox*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
         Write-Log "Microsoft Xbox removed"
     } catch {
         Write-Log "Error removing Xbox: $_"
@@ -1597,7 +1638,16 @@ function Remove-App-2 { # Microsoft OneNote
 function Remove-App-3 { # Microsoft LinkedIn
     Write-Log "Removing Microsoft LinkedIn..."
     try {
-        Remove-AppxPackageUniversal -PackageNames @("Microsoft.LinkedIn.LinkedIn") -DisplayNamePattern "LinkedIn"
+        # Try multiple package name variations
+        $linkedInPackages = @("Microsoft.LinkedIn.LinkedIn", "LinkedIn", "Microsoft.LinkedIn")
+        Remove-AppxPackageUniversal -PackageNames $linkedInPackages -DisplayNamePattern "LinkedIn"
+        # Also try direct removal by searching all packages
+        Get-AppxPackage | Where-Object {$_.Name -like "*LinkedIn*" -or $_.Publisher -like "*LinkedIn*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -ErrorAction SilentlyContinue
+        }
+        Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*LinkedIn*" -or $_.Publisher -like "*LinkedIn*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+        }
         Write-Log "Microsoft LinkedIn removed"
     } catch {
         Write-Log "Error removing LinkedIn: $_"
@@ -1639,7 +1689,23 @@ function Remove-App-6 { # Microsoft Edge (Legacy)
 function Remove-App-7 { # Microsoft Teams
     Write-Log "Removing Microsoft Teams..."
     try {
-        Remove-AppxPackageUniversal -PackageNames @("Microsoft.Teams") -DisplayNamePattern "Teams"
+        $teamsPackages = @("Microsoft.Teams", "MicrosoftTeams", "Teams")
+        Remove-AppxPackageUniversal -PackageNames $teamsPackages -DisplayNamePattern "Teams"
+        # Also try direct removal by searching all packages
+        Get-AppxPackage | Where-Object {$_.Name -like "*Teams*" -or $_.Publisher -like "*Teams*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -ErrorAction SilentlyContinue
+        }
+        Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*Teams*" -or $_.Publisher -like "*Teams*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+        }
+        # Remove provisioned packages
+        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Teams*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        # Also try stopping Teams process and removing from Program Files
+        Stop-Process -Name "Teams" -Force -ErrorAction SilentlyContinue
+        $teamsPath = "$env:LOCALAPPDATA\Microsoft\Teams"
+        if (Test-Path $teamsPath) {
+            Remove-Item -Path $teamsPath -Recurse -Force -ErrorAction SilentlyContinue
+        }
         Write-Log "Microsoft Teams removed"
     } catch {
         Write-Log "Error removing Teams: $_"
@@ -1819,7 +1885,17 @@ function Remove-App-24 { # Microsoft Power Automate
 function Remove-App-25 { # Microsoft Family Safety
     Write-Log "Removing Microsoft Family Safety..."
     try {
-        Remove-AppxPackageUniversal -PackageNames @("Microsoft.ParentalControls") -DisplayNamePattern "ParentalControls"
+        $familyPackages = @("Microsoft.ParentalControls", "Microsoft.Family", "ParentalControls", "FamilySafety")
+        Remove-AppxPackageUniversal -PackageNames $familyPackages -DisplayNamePattern "ParentalControls"
+        # Also try direct removal by searching all packages
+        Get-AppxPackage | Where-Object {$_.Name -like "*Family*" -or $_.Name -like "*Parental*" -or $_.Publisher -like "*Family*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -ErrorAction SilentlyContinue
+        }
+        Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*Family*" -or $_.Name -like "*Parental*" -or $_.Publisher -like "*Family*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+        }
+        # Remove provisioned packages
+        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Family*" -or $_.DisplayName -like "*Parental*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
         Write-Log "Microsoft Family Safety removed"
     } catch {
         Write-Log "Error removing Family Safety: $_"
@@ -1919,7 +1995,17 @@ function Remove-App-34 { # Microsoft Quick Assist
 function Remove-App-35 { # Microsoft Clipchamp
     Write-Log "Removing Microsoft Clipchamp..."
     try {
-        Remove-AppxPackageUniversal -PackageNames @("Microsoft.Clipchamp") -DisplayNamePattern "Clipchamp"
+        $clipchampPackages = @("Microsoft.Clipchamp", "Clipchamp", "MicrosoftClipchamp")
+        Remove-AppxPackageUniversal -PackageNames $clipchampPackages -DisplayNamePattern "Clipchamp"
+        # Also try direct removal by searching all packages
+        Get-AppxPackage | Where-Object {$_.Name -like "*Clipchamp*" -or $_.Publisher -like "*Clipchamp*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -ErrorAction SilentlyContinue
+        }
+        Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*Clipchamp*" -or $_.Publisher -like "*Clipchamp*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+        }
+        # Remove provisioned packages
+        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Clipchamp*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
         Write-Log "Microsoft Clipchamp removed"
     } catch {
         Write-Log "Error removing Clipchamp: $_"
@@ -1939,7 +2025,16 @@ function Remove-App-36 { # Microsoft Phone Link
 function Remove-App-37 { # Microsoft Outlook
     Write-Log "Removing Microsoft Outlook..."
     try {
-        Remove-AppxPackageUniversal -PackageNames @("Microsoft.Office.Outlook", "microsoft.office.outlook") -DisplayNamePattern "Outlook"
+        # Try multiple package name variations
+        $outlookPackages = @("Microsoft.Office.Outlook", "microsoft.office.outlook", "Outlook", "Microsoft.Outlook")
+        Remove-AppxPackageUniversal -PackageNames $outlookPackages -DisplayNamePattern "Outlook"
+        # Also try direct removal by searching all packages
+        Get-AppxPackage | Where-Object {$_.Name -like "*Outlook*" -or $_.Publisher -like "*Outlook*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -ErrorAction SilentlyContinue
+        }
+        Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*Outlook*" -or $_.Publisher -like "*Outlook*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+        }
         # Also try removing via winget
         try {
             winget uninstall "Microsoft Outlook" --accept-source-agreements --accept-package-agreements -ErrorAction SilentlyContinue | Out-Null
@@ -1967,6 +2062,83 @@ function Remove-App-39 { # Microsoft Clock
         Write-Log "Microsoft Clock removed"
     } catch {
         Write-Log "Error removing Clock: $_"
+    }
+}
+
+function Remove-App-40 { # Microsoft Bing Search
+    Write-Log "Removing Microsoft Bing Search..."
+    try {
+        $bingPackages = @("Microsoft.BingSearch", "Microsoft.Bing", "Microsoft.BingNews", "Microsoft.BingWeather")
+        Remove-AppxPackageUniversal -PackageNames $bingPackages -DisplayNamePattern "Bing"
+        # Also try direct removal
+        Get-AppxPackage | Where-Object {$_.Name -like "*Bing*" -and ($_.Name -like "*Search*" -or $_.Name -eq "Microsoft.Bing")} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -ErrorAction SilentlyContinue
+        }
+        Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*Bing*" -and ($_.Name -like "*Search*" -or $_.Name -eq "Microsoft.Bing")} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+        }
+        Write-Log "Microsoft Bing Search removed"
+    } catch {
+        Write-Log "Error removing Bing Search: $_"
+    }
+}
+
+function Remove-App-41 { # Sound Recorder
+    Write-Log "Removing Sound Recorder..."
+    try {
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.WindowsSoundRecorder", "Microsoft.SoundRecorder") -DisplayNamePattern "SoundRecorder"
+        # Also try direct removal
+        Get-AppxPackage | Where-Object {$_.Name -like "*Sound*" -or $_.Name -like "*Recorder*"} | ForEach-Object {
+            if ($_.Name -like "*SoundRecorder*" -or $_.Name -like "*Sound*Recorder*") {
+                Remove-AppxPackage -Package $_.PackageFullName -ErrorAction SilentlyContinue
+            }
+        }
+        Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*Sound*" -or $_.Name -like "*Recorder*"} | ForEach-Object {
+            if ($_.Name -like "*SoundRecorder*" -or $_.Name -like "*Sound*Recorder*") {
+                Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+            }
+        }
+        Write-Log "Sound Recorder removed"
+    } catch {
+        Write-Log "Error removing Sound Recorder: $_"
+    }
+}
+
+function Remove-App-42 { # Sticky Notes
+    Write-Log "Removing Sticky Notes..."
+    try {
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.MicrosoftStickyNotes", "Microsoft.StickyNotes") -DisplayNamePattern "StickyNotes"
+        # Also try direct removal
+        Get-AppxPackage | Where-Object {$_.Name -like "*Sticky*" -or $_.Name -like "*Notes*"} | ForEach-Object {
+            if ($_.Name -like "*Sticky*Notes*") {
+                Remove-AppxPackage -Package $_.PackageFullName -ErrorAction SilentlyContinue
+            }
+        }
+        Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*Sticky*" -or $_.Name -like "*Notes*"} | ForEach-Object {
+            if ($_.Name -like "*Sticky*Notes*") {
+                Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+            }
+        }
+        Write-Log "Sticky Notes removed"
+    } catch {
+        Write-Log "Error removing Sticky Notes: $_"
+    }
+}
+
+function Remove-App-43 { # Web Media Extensions
+    Write-Log "Removing Web Media Extensions..."
+    try {
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.WebMediaExtensions", "Microsoft.WebpImageExtension", "Microsoft.HEIFImageExtension", "Microsoft.HEVCVideoExtension") -DisplayNamePattern "WebMedia"
+        # Also try direct removal
+        Get-AppxPackage | Where-Object {$_.Name -like "*WebMedia*" -or $_.Name -like "*Webp*" -or $_.Name -like "*HEIF*" -or $_.Name -like "*HEVC*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -ErrorAction SilentlyContinue
+        }
+        Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*WebMedia*" -or $_.Name -like "*Webp*" -or $_.Name -like "*HEIF*" -or $_.Name -like "*HEVC*"} | ForEach-Object {
+            Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+        }
+        Write-Log "Web Media Extensions removed"
+    } catch {
+        Write-Log "Error removing Web Media Extensions: $_"
     }
 }
 
