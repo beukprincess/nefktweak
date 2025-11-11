@@ -2,7 +2,7 @@
 # Check for administrator privileges
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "Run script as Administrator. Some tweaks may not run." -ForegroundColor Yellow
+    Write-Host "You ran script as not administrator. Some functions may not work." -ForegroundColor Yellow
 }
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -1425,7 +1425,10 @@ $appsItems = @(
     "Microsoft Windows Media Player",
     "Microsoft Quick Assist",
     "Microsoft Clipchamp",
-    "Microsoft Phone Link"
+    "Microsoft Phone Link",
+    "Microsoft Outlook",
+    "Microsoft Snipping Tool",
+    "Microsoft Clock"
 )
 $appsTooltips = @(
     "Cloud storage",
@@ -1464,7 +1467,10 @@ $appsTooltips = @(
     "Media player",
     "Remote assist",
     "Video editor",
-    "Phone link"
+    "Phone link",
+    "Email client",
+    "Screenshot tool",
+    "Alarm clock"
 )
 $AppsPanel,$AppsList = New-ChecklistPanel $appsItems $appsTooltips
 # Reduce list height to make room for buttons
@@ -1930,6 +1936,40 @@ function Remove-App-36 { # Microsoft Phone Link
     }
 }
 
+function Remove-App-37 { # Microsoft Outlook
+    Write-Log "Removing Microsoft Outlook..."
+    try {
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.Office.Outlook", "microsoft.office.outlook") -DisplayNamePattern "Outlook"
+        # Also try removing via winget
+        try {
+            winget uninstall "Microsoft Outlook" --accept-source-agreements --accept-package-agreements -ErrorAction SilentlyContinue | Out-Null
+        } catch {}
+        Write-Log "Microsoft Outlook removed"
+    } catch {
+        Write-Log "Error removing Outlook: $_"
+    }
+}
+
+function Remove-App-38 { # Microsoft Snipping Tool
+    Write-Log "Removing Microsoft Snipping Tool..."
+    try {
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.ScreenSketch", "Microsoft.Windows.SnippingTool") -DisplayNamePattern "SnippingTool"
+        Write-Log "Microsoft Snipping Tool removed"
+    } catch {
+        Write-Log "Error removing Snipping Tool: $_"
+    }
+}
+
+function Remove-App-39 { # Microsoft Clock
+    Write-Log "Removing Microsoft Clock..."
+    try {
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.WindowsAlarms", "Microsoft.WindowsAlarms") -DisplayNamePattern "WindowsAlarms"
+        Write-Log "Microsoft Clock removed"
+    } catch {
+        Write-Log "Error removing Clock: $_"
+    }
+}
+
 # Function to remove selected apps
 function Remove-SelectedApps {
     Write-Log "Removing selected apps..."
@@ -1950,8 +1990,7 @@ function Remove-SelectedApps {
 # Button handlers for Remove Apps tab
 $BtnRemoveApps.Add_Click({
     $result = [System.Windows.Forms.MessageBox]::Show(
-        "WARNING: This will permanently remove the selected Windows apps.`n`n" +
-        "Some apps may be required for Windows functionality.`n`n" +
+        "Are you sure?.`n`n" +
         "Do you want to continue?",
         "Remove Windows Apps",
         [System.Windows.Forms.MessageBoxButtons]::YesNo,
@@ -1970,7 +2009,7 @@ $BtnRemoveApps.Add_Click({
             )
         } else {
             [System.Windows.Forms.MessageBox]::Show(
-                "No apps were selected for removal.",
+                "No apps to remove.",
                 "NEFK Tweaker",
                 [System.Windows.Forms.MessageBoxButtons]::OK,
                 [System.Windows.Forms.MessageBoxIcon]::Information
@@ -1987,8 +2026,6 @@ $BtnRestoreApps.Add_Click({
         "1. Reinstall them from Microsoft Store`n" +
         "2. Use PowerShell: Get-AppxPackage -AllUsers | Install-AppxPackage`n" +
         "3. Reset Windows Store: wsreset.exe`n`n" +
-        "Note: Some apps may require a Windows reinstall to fully restore.",
-        "Restore Apps",
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Information
     )
