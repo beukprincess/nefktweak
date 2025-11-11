@@ -765,6 +765,461 @@ function Apply-PerformanceTweak-16 { # Optimize Explorer shell loading
     }
 }
 
+function Apply-PerformanceTweak-17 { # Clean user temp files
+    try {
+        $userTemp = $env:TEMP
+        $localTemp = "$env:LOCALAPPDATA\Temp"
+        $cleaned = 0
+        
+        if (Test-Path $userTemp) {
+            $files = Get-ChildItem -Path $userTemp -Recurse -Force -ErrorAction SilentlyContinue
+            $cleaned += $files.Count
+            Remove-Item -Path "$userTemp\*" -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        
+        if (Test-Path $localTemp) {
+            $files = Get-ChildItem -Path $localTemp -Recurse -Force -ErrorAction SilentlyContinue
+            $cleaned += $files.Count
+            Remove-Item -Path "$localTemp\*" -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        
+        Write-Log "Cleaned user temp files: $cleaned files removed"
+    } catch {
+        Write-Log "Error cleaning user temp files: $_"
+    }
+}
+
+function Apply-PerformanceTweak-18 { # Clean Windows temp files
+    try {
+        $winTemp = "$env:WINDIR\Temp"
+        $cleaned = 0
+        
+        if (Test-Path $winTemp) {
+            $files = Get-ChildItem -Path $winTemp -Recurse -Force -ErrorAction SilentlyContinue
+            $cleaned = $files.Count
+            Remove-Item -Path "$winTemp\*" -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        
+        Write-Log "Cleaned Windows temp files: $cleaned files removed"
+    } catch {
+        Write-Log "Error cleaning Windows temp files: $_"
+    }
+}
+
+function Apply-PerformanceTweak-19 { # Clean Prefetch files
+    try {
+        $prefetchPath = "$env:WINDIR\Prefetch"
+        $cleaned = 0
+        
+        if (Test-Path $prefetchPath) {
+            $files = Get-ChildItem -Path $prefetchPath -Filter "*.pf" -Force -ErrorAction SilentlyContinue
+            $cleaned = $files.Count
+            Remove-Item -Path "$prefetchPath\*.pf" -Force -ErrorAction SilentlyContinue
+        }
+        
+        Write-Log "Cleaned Prefetch files: $cleaned files removed"
+    } catch {
+        Write-Log "Error cleaning Prefetch files: $_"
+    }
+}
+
+function Apply-PerformanceTweak-20 { # Clean browser cache
+    try {
+        $cleaned = 0
+        
+        # Standard cache paths
+        $cachePaths = @(
+            "$env:LOCALAPPDATA\Microsoft\Windows\INetCache",
+            "$env:LOCALAPPDATA\Microsoft\Windows\Temporary Internet Files",
+            "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache",
+            "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Code Cache",
+            "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache",
+            "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Code Cache"
+        )
+        
+        foreach ($path in $cachePaths) {
+            if (Test-Path $path) {
+                try {
+                    $files = Get-ChildItem -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+                    $cleaned += $files.Count
+                    Remove-Item -Path "$path\*" -Recurse -Force -ErrorAction SilentlyContinue
+                } catch {
+                    # Some files may be locked, skip
+                }
+            }
+        }
+        
+        # Firefox profiles (need to search for profiles)
+        $firefoxProfilesPath = "$env:APPDATA\Mozilla\Firefox\Profiles"
+        if (Test-Path $firefoxProfilesPath) {
+            $profiles = Get-ChildItem -Path $firefoxProfilesPath -Directory -ErrorAction SilentlyContinue
+            foreach ($firefoxProfile in $profiles) {
+                $cachePaths = @(
+                    "$($firefoxProfile.FullName)\cache2",
+                    "$($firefoxProfile.FullName)\startupCache"
+                )
+                foreach ($cachePath in $cachePaths) {
+                    if (Test-Path $cachePath) {
+                        try {
+                            $files = Get-ChildItem -Path $cachePath -Recurse -Force -ErrorAction SilentlyContinue
+                            $cleaned += $files.Count
+                            Remove-Item -Path "$cachePath\*" -Recurse -Force -ErrorAction SilentlyContinue
+                        } catch {}
+                    }
+                }
+            }
+        }
+        
+        Write-Log "Cleaned browser cache: $cleaned files removed"
+    } catch {
+        Write-Log "Error cleaning browser cache: $_"
+    }
+}
+
+function Apply-PerformanceTweak-21 { # Clean Recycle Bin
+    try {
+        $shell = New-Object -ComObject Shell.Application
+        $recycleBin = $shell.NameSpace(0xA)
+        $items = $recycleBin.Items()
+        $count = $items.Count
+        
+        foreach ($item in $items) {
+            Remove-Item -Path $item.Path -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        
+        # Also use Clear-RecycleBin cmdlet if available
+        try {
+            Clear-RecycleBin -Force -ErrorAction SilentlyContinue
+        } catch {}
+        
+        Write-Log "Cleaned Recycle Bin: $count items removed"
+    } catch {
+        Write-Log "Error cleaning Recycle Bin: $_"
+    }
+}
+
+function Apply-PerformanceTweak-22 { # Clean Windows Update cache
+    try {
+        $updatePaths = @(
+            "$env:WINDIR\SoftwareDistribution\Download",
+            "$env:WINDIR\SoftwareDistribution\DataStore"
+        )
+        $cleaned = 0
+        
+        # Stop Windows Update service temporarily
+        try {
+            Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+        } catch {}
+        
+        foreach ($path in $updatePaths) {
+            if (Test-Path $path) {
+                try {
+                    $files = Get-ChildItem -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+                    $cleaned += $files.Count
+                    Remove-Item -Path "$path\*" -Recurse -Force -ErrorAction SilentlyContinue
+                } catch {
+                    # Some files may be locked
+                }
+            }
+        }
+        
+        # Restart Windows Update service
+        try {
+            Start-Service wuauserv -ErrorAction SilentlyContinue
+        } catch {}
+        
+        Write-Log "Cleaned Windows Update cache: $cleaned files removed"
+    } catch {
+        Write-Log "Error cleaning Windows Update cache: $_"
+    }
+}
+
+function Apply-PerformanceTweak-23 { # Clean DNS cache
+    try {
+        Write-Log "Flushing DNS cache..."
+        ipconfig /flushdns | Out-Null
+        Write-Log "DNS cache flushed"
+    } catch {
+        Write-Log "Error flushing DNS cache: $_"
+    }
+}
+
+function Apply-PerformanceTweak-24 { # Clean thumbnail cache
+    try {
+        $thumbnailDir = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer"
+        $cleaned = 0
+        
+        if (Test-Path $thumbnailDir) {
+            $patterns = @("thumbcache_*.db", "thumbcache_*.db1", "thumbcache_*.db2", "thumbcache_*.db3", "thumbcache_*.db4", "thumbcache_*.db5", "iconcache_*.db")
+            
+            foreach ($pattern in $patterns) {
+                $files = Get-ChildItem -Path $thumbnailDir -Filter $pattern -Force -ErrorAction SilentlyContinue
+                foreach ($file in $files) {
+                    try {
+                        Remove-Item -Path $file.FullName -Force -ErrorAction SilentlyContinue
+                        $cleaned++
+                    } catch {}
+                }
+            }
+        }
+        
+        # Also clear thumbnail cache via registry
+        try {
+            Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches\Thumbnail Cache" -Name "StateFlags0001" -ErrorAction SilentlyContinue
+        } catch {}
+        
+        Write-Log "Cleaned thumbnail cache: $cleaned files removed"
+    } catch {
+        Write-Log "Error cleaning thumbnail cache: $_"
+    }
+}
+
+function Apply-PerformanceTweak-25 { # Clean Windows logs
+    try {
+        $logPaths = @(
+            "$env:WINDIR\Logs",
+            "$env:WINDIR\Panther",
+            "$env:WINDIR\Debug",
+            "$env:WINDIR\Minidump"
+        )
+        $cleaned = 0
+        
+        foreach ($path in $logPaths) {
+            if (Test-Path $path) {
+                try {
+                    $files = Get-ChildItem -Path $path -Recurse -Force -ErrorAction SilentlyContinue | Where-Object {!$_.PSIsContainer}
+                    $cleaned += $files.Count
+                    Remove-Item -Path "$path\*" -Recurse -Force -ErrorAction SilentlyContinue
+                } catch {
+                    # Some files may be locked
+                }
+            }
+        }
+        
+        Write-Log "Cleaned Windows logs: $cleaned files removed"
+    } catch {
+        Write-Log "Error cleaning Windows logs: $_"
+    }
+}
+
+function Apply-PerformanceTweak-26 { # Clean Event logs
+    try {
+        $cleaned = 0
+        $eventLogs = Get-EventLog -List | Where-Object {$_.Log -ne "Security"} # Don't clear Security log
+        
+        foreach ($log in $eventLogs) {
+            try {
+                $count = $log.Entries.Count
+                Clear-EventLog -LogName $log.Log -ErrorAction SilentlyContinue
+                $cleaned += $count
+            } catch {
+                # Some logs may be protected
+            }
+        }
+        
+        Write-Log "Cleaned Event logs: $cleaned entries removed"
+    } catch {
+        Write-Log "Error cleaning Event logs: $_"
+    }
+}
+
+function Apply-PerformanceTweak-27 { # Clean Microsoft Store cache
+    try {
+        $storeBasePath = "$env:LOCALAPPDATA\Packages"
+        $cleaned = 0
+        
+        if (Test-Path $storeBasePath) {
+            $storeDirs = Get-ChildItem -Path $storeBasePath -Filter "Microsoft.WindowsStore_*" -Directory -Force -ErrorAction SilentlyContinue
+            foreach ($storeDir in $storeDirs) {
+                $cachePaths = @(
+                    "$($storeDir.FullName)\LocalCache",
+                    "$($storeDir.FullName)\TempState"
+                )
+                foreach ($cachePath in $cachePaths) {
+                    if (Test-Path $cachePath) {
+                        try {
+                            $files = Get-ChildItem -Path $cachePath -Recurse -Force -ErrorAction SilentlyContinue
+                            $cleaned += $files.Count
+                            Remove-Item -Path "$cachePath\*" -Recurse -Force -ErrorAction SilentlyContinue
+                        } catch {}
+                    }
+                }
+            }
+        }
+        
+        # Also clear INetCache
+        $inetCache = "$env:LOCALAPPDATA\Microsoft\Windows\INetCache"
+        if (Test-Path $inetCache) {
+            try {
+                $files = Get-ChildItem -Path $inetCache -Recurse -Force -ErrorAction SilentlyContinue
+                $cleaned += $files.Count
+                Remove-Item -Path "$inetCache\*" -Recurse -Force -ErrorAction SilentlyContinue
+            } catch {}
+        }
+        
+        # Also run wsreset
+        try {
+            Start-Process -FilePath "wsreset.exe" -ArgumentList "/s" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+        } catch {}
+        
+        Write-Log "Cleaned Microsoft Store cache: $cleaned files removed"
+    } catch {
+        Write-Log "Error cleaning Microsoft Store cache: $_"
+    }
+}
+
+function Apply-PerformanceTweak-28 { # Clean Delivery Optimization cache
+    try {
+        $doPath = "$env:LOCALAPPDATA\Microsoft\Windows\DeliveryOptimization\Cache"
+        $cleaned = 0
+        
+        if (Test-Path $doPath) {
+            try {
+                $files = Get-ChildItem -Path $doPath -Recurse -Force -ErrorAction SilentlyContinue
+                $cleaned = $files.Count
+                Remove-Item -Path "$doPath\*" -Recurse -Force -ErrorAction SilentlyContinue
+            } catch {
+                # Some files may be locked
+            }
+        }
+        
+        # Also clear via service
+        try {
+            Stop-Service dosvc -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            if (Test-Path $doPath) {
+                Remove-Item -Path "$doPath\*" -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            Start-Service dosvc -ErrorAction SilentlyContinue
+        } catch {}
+        
+        Write-Log "Cleaned Delivery Optimization cache: $cleaned files removed"
+    } catch {
+        Write-Log "Error cleaning Delivery Optimization cache: $_"
+    }
+}
+
+function Apply-PerformanceTweak-29 { # Clean Windows error reports
+    try {
+        $errorReportPaths = @(
+            "$env:LOCALAPPDATA\Microsoft\Windows\WER",
+            "$env:PROGRAMDATA\Microsoft\Windows\WER"
+        )
+        $cleaned = 0
+        
+        foreach ($path in $errorReportPaths) {
+            if (Test-Path $path) {
+                try {
+                    $files = Get-ChildItem -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+                    $cleaned += $files.Count
+                    Remove-Item -Path "$path\*" -Recurse -Force -ErrorAction SilentlyContinue
+                } catch {
+                    # Some files may be locked
+                }
+            }
+        }
+        
+        Write-Log "Cleaned Windows error reports: $cleaned files removed"
+    } catch {
+        Write-Log "Error cleaning Windows error reports: $_"
+    }
+}
+
+function Apply-PerformanceTweak-30 { # Clean Recent files
+    try {
+        $recentPaths = @(
+            "$env:APPDATA\Microsoft\Windows\Recent",
+            "$env:APPDATA\Microsoft\Windows\Recent\AutomaticDestinations",
+            "$env:APPDATA\Microsoft\Windows\Recent\CustomDestinations"
+        )
+        $cleaned = 0
+        
+        foreach ($path in $recentPaths) {
+            if (Test-Path $path) {
+                try {
+                    $files = Get-ChildItem -Path $path -Force -ErrorAction SilentlyContinue
+                    $cleaned += $files.Count
+                    Remove-Item -Path "$path\*" -Recurse -Force -ErrorAction SilentlyContinue
+                } catch {}
+            }
+        }
+        
+        Write-Log "Cleaned Recent files: $cleaned files removed"
+    } catch {
+        Write-Log "Error cleaning Recent files: $_"
+    }
+}
+
+function Apply-PerformanceTweak-31 { # Clean Windows Defender cache
+    try {
+        $defenderPaths = @(
+            "$env:PROGRAMDATA\Microsoft\Windows Defender\Scans\FilesStash",
+            "$env:PROGRAMDATA\Microsoft\Windows Defender\Support"
+        )
+        $cleaned = 0
+        
+        foreach ($path in $defenderPaths) {
+            if (Test-Path $path) {
+                try {
+                    $files = Get-ChildItem -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+                    $cleaned += $files.Count
+                    Remove-Item -Path "$path\*" -Recurse -Force -ErrorAction SilentlyContinue
+                } catch {
+                    # Some files may be locked
+                }
+            }
+        }
+        
+        Write-Log "Cleaned Windows Defender cache: $cleaned files removed"
+    } catch {
+        Write-Log "Error cleaning Windows Defender cache: $_"
+    }
+}
+
+function Apply-PerformanceTweak-32 { # Clean all temp files
+    try {
+        Write-Log "Cleaning all temp files..."
+        Apply-PerformanceTweak-17 # User temp
+        Apply-PerformanceTweak-18 # Windows temp
+        Apply-PerformanceTweak-19 # Prefetch
+        Apply-PerformanceTweak-20 # Browser cache
+        Apply-PerformanceTweak-21 # Recycle Bin
+        Apply-PerformanceTweak-22 # Windows Update cache
+        Apply-PerformanceTweak-23 # DNS cache
+        Apply-PerformanceTweak-24 # Thumbnail cache
+        Apply-PerformanceTweak-25 # Windows logs
+        Apply-PerformanceTweak-26 # Event logs
+        Apply-PerformanceTweak-27 # Microsoft Store cache
+        Apply-PerformanceTweak-28 # Delivery Optimization cache
+        Apply-PerformanceTweak-29 # Windows error reports
+        Apply-PerformanceTweak-30 # Recent files
+        Apply-PerformanceTweak-31 # Windows Defender cache
+        
+        # Additional cleanup
+        $additionalPaths = @(
+            "$env:LOCALAPPDATA\Microsoft\Windows\WebCache",
+            "$env:LOCALAPPDATA\Microsoft\Windows\History",
+            "$env:LOCALAPPDATA\Microsoft\Office\16.0\OfficeFileCache",
+            "$env:LOCALAPPDATA\Microsoft\Office\16.0\OfficeFileCache",
+            "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\Recent",
+            "$env:APPDATA\Microsoft\Windows\Libraries"
+        )
+        
+        foreach ($path in $additionalPaths) {
+            if (Test-Path $path) {
+                try {
+                    Remove-Item -Path "$path\*" -Recurse -Force -ErrorAction SilentlyContinue
+                } catch {}
+            }
+        }
+        
+        Write-Log "All temp files cleaned"
+    } catch {
+        Write-Log "Error cleaning all temp files: $_"
+    }
+}
+
 # Legacy function for backward compatibility - applies only checked items
 function Apply-PerformanceTweaks {
     Write-Log "Applying selected Performance Tweaks..."
@@ -916,7 +1371,23 @@ $performanceItems = @(
     "Disable font loading delay",
     "Optimize boot timeout",
     "Disable VBS (Virtualization-Based Security)",
-    "Optimize Explorer shell loading"
+    "Optimize Explorer shell loading",
+    "Clean user temp files",
+    "Clean Windows temp files",
+    "Clean Prefetch files",
+    "Clean browser cache",
+    "Clean Recycle Bin",
+    "Clean Windows Update cache",
+    "Clean DNS cache",
+    "Clean thumbnail cache",
+    "Clean Windows logs",
+    "Clean Event logs",
+    "Clean Microsoft Store cache",
+    "Clean Delivery Optimization cache",
+    "Clean Windows error reports",
+    "Clean Recent files",
+    "Clean Windows Defender cache",
+    "Clean all temp files"
 )
 $performanceTooltips = @(
     "No animations",
@@ -935,7 +1406,23 @@ $performanceTooltips = @(
     "Fast fonts",
     "Quick boot",
     "Disable VBS",
-    "Fast Explorer"
+    "Fast Explorer",
+    "Clear user temp",
+    "Clear Windows temp",
+    "Clear prefetch",
+    "Clear browser cache",
+    "Empty Recycle Bin",
+    "Clear update cache",
+    "Flush DNS cache",
+    "Clear thumbnails",
+    "Clear Windows logs",
+    "Clear Event logs",
+    "Clear Store cache",
+    "Clear delivery cache",
+    "Clear error reports",
+    "Clear recent files",
+    "Clear Defender cache",
+    "Clean everything"
 )
 $PerformancePanel,$PerformanceList = New-ChecklistPanel $performanceItems $performanceTooltips
 $TabPerformance.Controls.Add($PerformancePanel)
@@ -1608,18 +2095,91 @@ function Remove-App-0 { # Microsoft OneDrive
 function Remove-App-1 { # Microsoft Xbox
     Write-Log "Removing Microsoft Xbox..."
     try {
-        $xboxPackages = @("Microsoft.XboxApp", "Microsoft.XboxGameOverlay", "Microsoft.XboxGamingOverlay", "Microsoft.XboxIdentityProvider", "Microsoft.XboxSpeechToTextOverlay", "Microsoft.Xbox", "Xbox")
+        # Stop Xbox processes
+        Get-Process | Where-Object {$_.ProcessName -like "*Xbox*"} | Stop-Process -Force -ErrorAction SilentlyContinue
+        Stop-Process -Name "XboxApp" -Force -ErrorAction SilentlyContinue
+        Stop-Process -Name "XboxGameBar" -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        
+        # Try AppxPackage removal
+        $xboxPackages = @("Microsoft.XboxApp", "Microsoft.XboxGameOverlay", "Microsoft.XboxGamingOverlay", "Microsoft.XboxIdentityProvider", "Microsoft.XboxSpeechToTextOverlay", "Microsoft.Xbox", "Xbox", "Microsoft.XboxGamingOverlay", "Microsoft.Xbox.TCUI")
         Remove-AppxPackageUniversal -PackageNames $xboxPackages -DisplayNamePattern "Xbox"
+        
         # Also try direct removal by searching all packages
         Get-AppxPackage | Where-Object {$_.Name -like "*Xbox*" -or $_.Publisher -like "*Xbox*"} | ForEach-Object {
+            Write-Log "Found Xbox package: $($_.Name) - $($_.PackageFullName)"
             Remove-AppxPackage -Package $_.PackageFullName -ErrorAction SilentlyContinue
         }
         Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*Xbox*" -or $_.Publisher -like "*Xbox*"} | ForEach-Object {
+            Write-Log "Found Xbox package (AllUsers): $($_.Name) - $($_.PackageFullName)"
             Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
         }
+        
         # Remove provisioned packages
+        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Xbox*"} | ForEach-Object {
+            Write-Log "Removing provisioned Xbox package: $($_.DisplayName)"
+            Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue
+        }
+        # Also try direct removal
         Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Xbox*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
-        Write-Log "Microsoft Xbox removed"
+        
+        # Try removing via Get-Package (for traditional installers)
+        try {
+            $xboxPackages = Get-Package | Where-Object {$_.Name -like "*Xbox*"}
+            foreach ($pkg in $xboxPackages) {
+                Write-Log "Found Xbox package via Get-Package: $($pkg.Name)"
+                Uninstall-Package -Name $pkg.Name -Force -ErrorAction SilentlyContinue
+            }
+        } catch {
+            Write-Log "Get-Package method failed: $_"
+        }
+        
+        # Try removing via winget
+        try {
+            winget uninstall "Microsoft.Xbox" --accept-source-agreements --accept-package-agreements -ErrorAction SilentlyContinue | Out-Null
+            winget uninstall "Xbox" --accept-source-agreements --accept-package-agreements -ErrorAction SilentlyContinue | Out-Null
+            winget uninstall "Xbox Game Bar" --accept-source-agreements --accept-package-agreements -ErrorAction SilentlyContinue | Out-Null
+        } catch {
+            Write-Log "winget removal failed: $_"
+        }
+        
+        # Remove Xbox folders
+        $xboxPaths = @(
+            "$env:LOCALAPPDATA\Microsoft\Xbox",
+            "$env:PROGRAMFILES\WindowsApps\Microsoft.Xbox*",
+            "$env:PROGRAMDATA\Microsoft\Xbox"
+        )
+        foreach ($path in $xboxPaths) {
+            if (Test-Path $path) {
+                Write-Log "Removing Xbox folder: $path"
+                Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        # Remove from registry
+        try {
+            $regPaths = @(
+                "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+                "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
+            )
+            foreach ($regPath in $regPaths) {
+                Get-ItemProperty $regPath -ErrorAction SilentlyContinue | Where-Object {$_.DisplayName -like "*Xbox*"} | ForEach-Object {
+                    Write-Log "Found Xbox in registry: $($_.DisplayName)"
+                    if ($_.UninstallString) {
+                        $uninstallCmd = $_.UninstallString
+                        if ($uninstallCmd -match '^"(.+)"') {
+                            $uninstallExe = $matches[1]
+                            $uninstallArgs = $uninstallCmd.Substring($matches[0].Length).Trim()
+                            Start-Process -FilePath $uninstallExe -ArgumentList "$uninstallArgs /S" -Wait -ErrorAction SilentlyContinue
+                        }
+                    }
+                }
+            }
+        } catch {
+            Write-Log "Registry removal failed: $_"
+        }
+        
+        Write-Log "Microsoft Xbox removal completed"
     } catch {
         Write-Log "Error removing Xbox: $_"
     }
@@ -1689,24 +2249,112 @@ function Remove-App-6 { # Microsoft Edge (Legacy)
 function Remove-App-7 { # Microsoft Teams
     Write-Log "Removing Microsoft Teams..."
     try {
-        $teamsPackages = @("Microsoft.Teams", "MicrosoftTeams", "Teams")
+        # Stop Teams processes
+        Stop-Process -Name "Teams" -Force -ErrorAction SilentlyContinue
+        Stop-Process -Name "ms-teams" -Force -ErrorAction SilentlyContinue
+        Stop-Process -Name "Microsoft Teams" -Force -ErrorAction SilentlyContinue
+        Get-Process | Where-Object {$_.ProcessName -like "*Teams*"} | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        
+        # Try AppxPackage removal
+        $teamsPackages = @("Microsoft.Teams", "MicrosoftTeams", "Teams", "MSTeams")
         Remove-AppxPackageUniversal -PackageNames $teamsPackages -DisplayNamePattern "Teams"
+        
         # Also try direct removal by searching all packages
         Get-AppxPackage | Where-Object {$_.Name -like "*Teams*" -or $_.Publisher -like "*Teams*"} | ForEach-Object {
+            Write-Log "Found Teams package: $($_.Name) - $($_.PackageFullName)"
             Remove-AppxPackage -Package $_.PackageFullName -ErrorAction SilentlyContinue
         }
         Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*Teams*" -or $_.Publisher -like "*Teams*"} | ForEach-Object {
+            Write-Log "Found Teams package (AllUsers): $($_.Name) - $($_.PackageFullName)"
             Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
         }
+        
         # Remove provisioned packages
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Teams*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
-        # Also try stopping Teams process and removing from Program Files
-        Stop-Process -Name "Teams" -Force -ErrorAction SilentlyContinue
-        $teamsPath = "$env:LOCALAPPDATA\Microsoft\Teams"
-        if (Test-Path $teamsPath) {
-            Remove-Item -Path $teamsPath -Recurse -Force -ErrorAction SilentlyContinue
+        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Teams*"} | ForEach-Object {
+            Write-Log "Removing provisioned Teams package: $($_.DisplayName)"
+            Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue
         }
-        Write-Log "Microsoft Teams removed"
+        # Also try direct removal
+        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Teams*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        
+        # Try removing via Get-Package (for traditional installers)
+        try {
+            $teamsPackages = Get-Package | Where-Object {$_.Name -like "*Teams*"}
+            foreach ($pkg in $teamsPackages) {
+                Write-Log "Found Teams package via Get-Package: $($pkg.Name)"
+                Uninstall-Package -Name $pkg.Name -Force -ErrorAction SilentlyContinue
+            }
+        } catch {
+            Write-Log "Get-Package method failed: $_"
+        }
+        
+        # Try removing via winget
+        try {
+            winget uninstall "Microsoft.Teams" --accept-source-agreements --accept-package-agreements -ErrorAction SilentlyContinue | Out-Null
+            winget uninstall "Teams" --accept-source-agreements --accept-package-agreements -ErrorAction SilentlyContinue | Out-Null
+            winget uninstall "Microsoft Teams" --accept-source-agreements --accept-package-agreements -ErrorAction SilentlyContinue | Out-Null
+        } catch {
+            Write-Log "winget removal failed: $_"
+        }
+        
+        # Remove Teams folders (both Appx and traditional installation)
+        $teamsPaths = @(
+            "$env:LOCALAPPDATA\Microsoft\Teams",
+            "$env:APPDATA\Microsoft\Teams",
+            "$env:PROGRAMFILES\Microsoft\Teams",
+            "$env:PROGRAMFILES(X86)\Microsoft\Teams",
+            "$env:PROGRAMDATA\Microsoft\Teams",
+            "$env:PROGRAMDATA\Microsoft\Windows\Start Menu\Programs\Microsoft Teams.lnk"
+        )
+        foreach ($path in $teamsPaths) {
+            if (Test-Path $path) {
+                Write-Log "Removing Teams folder/file: $path"
+                Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        # Remove from registry and try uninstaller
+        try {
+            $regPaths = @(
+                "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+                "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+                "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
+            )
+            foreach ($regPath in $regPaths) {
+                Get-ItemProperty $regPath -ErrorAction SilentlyContinue | Where-Object {$_.DisplayName -like "*Teams*"} | ForEach-Object {
+                    Write-Log "Found Teams in registry: $($_.DisplayName)"
+                    if ($_.UninstallString) {
+                        $uninstallCmd = $_.UninstallString
+                        if ($uninstallCmd -match '^"(.+)"') {
+                            $uninstallExe = $matches[1]
+                            $uninstallArgs = $uninstallCmd.Substring($matches[0].Length).Trim()
+                            Write-Log "Running uninstaller: $uninstallExe $uninstallArgs /S"
+                            Start-Process -FilePath $uninstallExe -ArgumentList "$uninstallArgs /S" -Wait -ErrorAction SilentlyContinue
+                        } elseif ($uninstallCmd -match '^(.+\.exe)') {
+                            $uninstallExe = $matches[1]
+                            Write-Log "Running uninstaller: $uninstallExe /S"
+                            Start-Process -FilePath $uninstallExe -ArgumentList "/S" -Wait -ErrorAction SilentlyContinue
+                        }
+                    }
+                }
+            }
+        } catch {
+            Write-Log "Registry removal failed: $_"
+        }
+        
+        # Try MSI uninstall if exists
+        try {
+            $msiProducts = Get-WmiObject Win32_Product | Where-Object {$_.Name -like "*Teams*"}
+            foreach ($product in $msiProducts) {
+                Write-Log "Found Teams MSI product: $($product.Name)"
+                $product.Uninstall() | Out-Null
+            }
+        } catch {
+            Write-Log "MSI removal failed: $_"
+        }
+        
+        Write-Log "Microsoft Teams removal completed"
     } catch {
         Write-Log "Error removing Teams: $_"
     }
