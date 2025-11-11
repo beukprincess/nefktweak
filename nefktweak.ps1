@@ -2099,36 +2099,100 @@ function Remove-App-1 { # Microsoft Xbox
         Get-Process | Where-Object {$_.ProcessName -like "*Xbox*"} | Stop-Process -Force -ErrorAction SilentlyContinue
         Stop-Process -Name "XboxApp" -Force -ErrorAction SilentlyContinue
         Stop-Process -Name "XboxGameBar" -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
+        Stop-Process -Name "XboxIdentityProvider" -Force -ErrorAction SilentlyContinue
+        Stop-Process -Name "XboxGamingOverlay" -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 3
         
-        # Try AppxPackage removal
-        $xboxPackages = @("Microsoft.XboxApp", "Microsoft.XboxGameOverlay", "Microsoft.XboxGamingOverlay", "Microsoft.XboxIdentityProvider", "Microsoft.XboxSpeechToTextOverlay", "Microsoft.Xbox", "Xbox", "Microsoft.XboxGamingOverlay", "Microsoft.Xbox.TCUI")
+        # Try AppxPackage removal with more package names
+        $xboxPackages = @(
+            "Microsoft.XboxApp",
+            "Microsoft.XboxGameOverlay",
+            "Microsoft.XboxGamingOverlay",
+            "Microsoft.XboxIdentityProvider",
+            "Microsoft.XboxSpeechToTextOverlay",
+            "Microsoft.Xbox",
+            "Xbox",
+            "Microsoft.Xbox.TCUI",
+            "Microsoft.XboxGameCallableUI",
+            "Microsoft.XboxGamingOverlay",
+            "Microsoft.XboxIdentityProvider",
+            "Microsoft.XboxApp",
+            "Microsoft.GamingApp"
+        )
         Remove-AppxPackageUniversal -PackageNames $xboxPackages -DisplayNamePattern "Xbox"
         
-        # Also try direct removal by searching all packages
-        Get-AppxPackage | Where-Object {$_.Name -like "*Xbox*" -or $_.Publisher -like "*Xbox*"} | ForEach-Object {
-            Write-Log "Found Xbox package: $($_.Name) - $($_.PackageFullName)"
-            Remove-AppxPackage -Package $_.PackageFullName -ErrorAction SilentlyContinue
-        }
-        Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*Xbox*" -or $_.Publisher -like "*Xbox*"} | ForEach-Object {
-            Write-Log "Found Xbox package (AllUsers): $($_.Name) - $($_.PackageFullName)"
-            Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+        # Also try direct removal by searching all packages - more aggressive
+        Get-AppxPackage | Where-Object {
+            $_.Name -like "*Xbox*" -or 
+            $_.Publisher -like "*Xbox*" -or 
+            $_.Name -like "*Gaming*" -or
+            $_.DisplayName -like "*Xbox*"
+        } | ForEach-Object {
+            Write-Log "Found Xbox package: $($_.Name) - $($_.PackageFullName) - DisplayName: $($_.DisplayName)"
+            try {
+                Remove-AppxPackage -Package $_.PackageFullName -ErrorAction Stop
+                Write-Log "Successfully removed: $($_.Name)"
+            } catch {
+                Write-Log "Failed to remove $($_.Name): $_"
+                # Try with AllUsers flag
+                try {
+                    Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction Stop
+                    Write-Log "Successfully removed (AllUsers): $($_.Name)"
+                } catch {
+                    Write-Log "Failed to remove (AllUsers) $($_.Name): $_"
+                }
+            }
         }
         
-        # Remove provisioned packages
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Xbox*"} | ForEach-Object {
-            Write-Log "Removing provisioned Xbox package: $($_.DisplayName)"
-            Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue
+        Get-AppxPackage -AllUsers | Where-Object {
+            $_.Name -like "*Xbox*" -or 
+            $_.Publisher -like "*Xbox*" -or 
+            $_.Name -like "*Gaming*" -or
+            $_.DisplayName -like "*Xbox*"
+        } | ForEach-Object {
+            Write-Log "Found Xbox package (AllUsers): $($_.Name) - $($_.PackageFullName) - DisplayName: $($_.DisplayName)"
+            try {
+                Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction Stop
+                Write-Log "Successfully removed (AllUsers): $($_.Name)"
+            } catch {
+                Write-Log "Failed to remove (AllUsers) $($_.Name): $_"
+            }
         }
-        # Also try direct removal
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Xbox*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        
+        # Remove provisioned packages - more aggressive
+        Get-AppxProvisionedPackage -Online | Where-Object {
+            $_.DisplayName -like "*Xbox*" -or 
+            $_.PackageName -like "*Xbox*" -or
+            $_.DisplayName -like "*Gaming*"
+        } | ForEach-Object {
+            Write-Log "Removing provisioned Xbox package: $($_.DisplayName) - $($_.PackageName)"
+            try {
+                Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction Stop
+                Write-Log "Successfully removed provisioned: $($_.DisplayName)"
+            } catch {
+                Write-Log "Failed to remove provisioned $($_.DisplayName): $_"
+                # Try with DISM
+                try {
+                    $packageName = $_.PackageName
+                    $dismResult = & DISM /Online /Remove-ProvisionedAppxPackage "/PackageName:$packageName" 2>&1
+                    Write-Log "DISM result: $dismResult"
+                } catch {
+                    Write-Log "DISM removal failed: $_"
+                }
+            }
+        }
         
         # Try removing via Get-Package (for traditional installers)
         try {
-            $xboxPackages = Get-Package | Where-Object {$_.Name -like "*Xbox*"}
+            $xboxPackages = Get-Package | Where-Object {$_.Name -like "*Xbox*" -or $_.Name -like "*Gaming*"}
             foreach ($pkg in $xboxPackages) {
                 Write-Log "Found Xbox package via Get-Package: $($pkg.Name)"
-                Uninstall-Package -Name $pkg.Name -Force -ErrorAction SilentlyContinue
+                try {
+                    Uninstall-Package -Name $pkg.Name -Force -ErrorAction Stop
+                    Write-Log "Successfully uninstalled via Get-Package: $($pkg.Name)"
+                } catch {
+                    Write-Log "Failed to uninstall via Get-Package $($pkg.Name): $_"
+                }
             }
         } catch {
             Write-Log "Get-Package method failed: $_"
@@ -2136,47 +2200,125 @@ function Remove-App-1 { # Microsoft Xbox
         
         # Try removing via winget
         try {
-            winget uninstall "Microsoft.Xbox" --accept-source-agreements --accept-package-agreements -ErrorAction SilentlyContinue | Out-Null
-            winget uninstall "Xbox" --accept-source-agreements --accept-package-agreements -ErrorAction SilentlyContinue | Out-Null
-            winget uninstall "Xbox Game Bar" --accept-source-agreements --accept-package-agreements -ErrorAction SilentlyContinue | Out-Null
+            $wingetApps = @("Microsoft.Xbox", "Xbox", "Xbox Game Bar", "Microsoft Xbox", "Xbox App", "Xbox Gaming Overlay")
+            foreach ($app in $wingetApps) {
+                try {
+                    winget uninstall "$app" --accept-source-agreements --accept-package-agreements --silent -ErrorAction Stop | Out-Null
+                    Write-Log "Successfully uninstalled via winget: $app"
+                } catch {
+                    Write-Log "winget removal failed for $app: $_"
+                }
+            }
         } catch {
             Write-Log "winget removal failed: $_"
         }
         
-        # Remove Xbox folders
+        # Remove Xbox folders - more paths
         $xboxPaths = @(
             "$env:LOCALAPPDATA\Microsoft\Xbox",
-            "$env:PROGRAMFILES\WindowsApps\Microsoft.Xbox*",
-            "$env:PROGRAMDATA\Microsoft\Xbox"
+            "$env:PROGRAMDATA\Microsoft\Xbox",
+            "$env:APPDATA\Microsoft\Xbox"
         )
         foreach ($path in $xboxPaths) {
             if (Test-Path $path) {
                 Write-Log "Removing Xbox folder: $path"
-                Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+                try {
+                    Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
+                    Write-Log "Successfully removed folder: $path"
+                } catch {
+                    Write-Log "Failed to remove folder $path: $_"
+                    # Try with takeown and icacls
+                    try {
+                        takeown /F $path /R /D Y 2>&1 | Out-Null
+                        icacls $path /grant Administrators:F /T 2>&1 | Out-Null
+                        Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+                    } catch {
+                        Write-Log "Failed to take ownership and remove: $_"
+                    }
+                }
             }
         }
         
-        # Remove from registry
+        # Handle wildcard paths separately
+        $wildcardPaths = @(
+            "$env:LOCALAPPDATA\Packages",
+            "$env:PROGRAMFILES\WindowsApps",
+            "$env:PROGRAMDATA\Package Cache"
+        )
+        foreach ($basePath in $wildcardPaths) {
+            if (Test-Path $basePath) {
+                try {
+                    $xboxDirs = Get-ChildItem -Path $basePath -Filter "*Xbox*" -Directory -ErrorAction SilentlyContinue
+                    foreach ($dir in $xboxDirs) {
+                        Write-Log "Removing Xbox folder: $($dir.FullName)"
+                        try {
+                            Remove-Item -Path $dir.FullName -Recurse -Force -ErrorAction Stop
+                            Write-Log "Successfully removed folder: $($dir.FullName)"
+                        } catch {
+                            Write-Log "Failed to remove folder $($dir.FullName): $_"
+                            # Try with takeown and icacls
+                            try {
+                                takeown /F $dir.FullName /R /D Y 2>&1 | Out-Null
+                                icacls $dir.FullName /grant Administrators:F /T 2>&1 | Out-Null
+                                Remove-Item -Path $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                            } catch {
+                                Write-Log "Failed to take ownership and remove: $_"
+                            }
+                        }
+                    }
+                } catch {
+                    Write-Log "Failed to search for Xbox folders in $basePath: $_"
+                }
+            }
+        }
+        
+        # Remove from registry - more paths
         try {
             $regPaths = @(
                 "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
-                "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
+                "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+                "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+                "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore\Deprecated\*"
             )
             foreach ($regPath in $regPaths) {
-                Get-ItemProperty $regPath -ErrorAction SilentlyContinue | Where-Object {$_.DisplayName -like "*Xbox*"} | ForEach-Object {
+                Get-ItemProperty $regPath -ErrorAction SilentlyContinue | Where-Object {
+                    $_.DisplayName -like "*Xbox*" -or 
+                    $_.DisplayName -like "*Gaming*"
+                } | ForEach-Object {
                     Write-Log "Found Xbox in registry: $($_.DisplayName)"
                     if ($_.UninstallString) {
                         $uninstallCmd = $_.UninstallString
                         if ($uninstallCmd -match '^"(.+)"') {
                             $uninstallExe = $matches[1]
                             $uninstallArgs = $uninstallCmd.Substring($matches[0].Length).Trim()
+                            Write-Log "Running uninstaller: $uninstallExe $uninstallArgs /S"
                             Start-Process -FilePath $uninstallExe -ArgumentList "$uninstallArgs /S" -Wait -ErrorAction SilentlyContinue
+                        } elseif ($uninstallCmd -match '^(.+\.exe)') {
+                            $uninstallExe = $matches[1]
+                            Write-Log "Running uninstaller: $uninstallExe /S"
+                            Start-Process -FilePath $uninstallExe -ArgumentList "/S" -Wait -ErrorAction SilentlyContinue
                         }
                     }
                 }
             }
         } catch {
             Write-Log "Registry removal failed: $_"
+        }
+        
+        # Try MSI uninstall if exists
+        try {
+            $msiProducts = Get-WmiObject Win32_Product | Where-Object {$_.Name -like "*Xbox*" -or $_.Name -like "*Gaming*"}
+            foreach ($product in $msiProducts) {
+                Write-Log "Found Xbox MSI product: $($product.Name)"
+                try {
+                    $product.Uninstall() | Out-Null
+                    Write-Log "Successfully uninstalled MSI: $($product.Name)"
+                } catch {
+                    Write-Log "Failed to uninstall MSI $($product.Name): $_"
+                }
+            }
+        } catch {
+            Write-Log "MSI removal failed: $_"
         }
         
         Write-Log "Microsoft Xbox removal completed"
@@ -2633,8 +2775,194 @@ function Remove-App-33 { # Microsoft Windows Media Player
 function Remove-App-34 { # Microsoft Quick Assist
     Write-Log "Removing Microsoft Quick Assist..."
     try {
-        Remove-AppxPackageUniversal -PackageNames @("Microsoft.Windows.AssignedAccessLockApp") -DisplayNamePattern "AssignedAccessLockApp"
-        Write-Log "Microsoft Quick Assist removed"
+        # Stop Quick Assist processes
+        Stop-Process -Name "QuickAssist" -Force -ErrorAction SilentlyContinue
+        Get-Process | Where-Object {$_.ProcessName -like "*QuickAssist*" -or $_.ProcessName -like "*Quick*Assist*"} | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        
+        # Try multiple package name variations
+        $quickAssistPackages = @(
+            "Microsoft.QuickAssist",
+            "Microsoft.Windows.QuickAssist",
+            "Microsoft.Windows.AssignedAccessLockApp",
+            "QuickAssist",
+            "Microsoft.QuickAssist",
+            "Microsoft.Windows.QuickAssist"
+        )
+        Remove-AppxPackageUniversal -PackageNames $quickAssistPackages -DisplayNamePattern "QuickAssist"
+        
+        # Also try direct removal by searching all packages
+        Get-AppxPackage | Where-Object {
+            $_.Name -like "*QuickAssist*" -or 
+            $_.Name -like "*Quick*Assist*" -or
+            $_.Publisher -like "*QuickAssist*" -or
+            $_.DisplayName -like "*Quick Assist*" -or
+            $_.DisplayName -like "*QuickAssist*"
+        } | ForEach-Object {
+            Write-Log "Found Quick Assist package: $($_.Name) - $($_.PackageFullName) - DisplayName: $($_.DisplayName)"
+            try {
+                Remove-AppxPackage -Package $_.PackageFullName -ErrorAction Stop
+                Write-Log "Successfully removed: $($_.Name)"
+            } catch {
+                Write-Log "Failed to remove $($_.Name): $_"
+                # Try with AllUsers flag
+                try {
+                    Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction Stop
+                    Write-Log "Successfully removed (AllUsers): $($_.Name)"
+                } catch {
+                    Write-Log "Failed to remove (AllUsers) $($_.Name): $_"
+                }
+            }
+        }
+        
+        Get-AppxPackage -AllUsers | Where-Object {
+            $_.Name -like "*QuickAssist*" -or 
+            $_.Name -like "*Quick*Assist*" -or
+            $_.Publisher -like "*QuickAssist*" -or
+            $_.DisplayName -like "*Quick Assist*" -or
+            $_.DisplayName -like "*QuickAssist*"
+        } | ForEach-Object {
+            Write-Log "Found Quick Assist package (AllUsers): $($_.Name) - $($_.PackageFullName) - DisplayName: $($_.DisplayName)"
+            try {
+                Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction Stop
+                Write-Log "Successfully removed (AllUsers): $($_.Name)"
+            } catch {
+                Write-Log "Failed to remove (AllUsers) $($_.Name): $_"
+            }
+        }
+        
+        # Remove provisioned packages
+        Get-AppxProvisionedPackage -Online | Where-Object {
+            $_.DisplayName -like "*QuickAssist*" -or 
+            $_.DisplayName -like "*Quick Assist*" -or
+            $_.PackageName -like "*QuickAssist*" -or
+            $_.PackageName -like "*Quick*Assist*"
+        } | ForEach-Object {
+            Write-Log "Removing provisioned Quick Assist package: $($_.DisplayName) - $($_.PackageName)"
+            try {
+                Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction Stop
+                Write-Log "Successfully removed provisioned: $($_.DisplayName)"
+            } catch {
+                Write-Log "Failed to remove provisioned $($_.DisplayName): $_"
+                # Try with DISM
+                try {
+                    $packageName = $_.PackageName
+                    $dismResult = & DISM /Online /Remove-ProvisionedAppxPackage "/PackageName:$packageName" 2>&1
+                    Write-Log "DISM result: $dismResult"
+                } catch {
+                    Write-Log "DISM removal failed: $_"
+                }
+            }
+        }
+        
+        # Try removing via Get-Package
+        try {
+            $quickAssistPackages = Get-Package | Where-Object {
+                $_.Name -like "*QuickAssist*" -or 
+                $_.Name -like "*Quick Assist*"
+            }
+            foreach ($pkg in $quickAssistPackages) {
+                Write-Log "Found Quick Assist package via Get-Package: $($pkg.Name)"
+                try {
+                    Uninstall-Package -Name $pkg.Name -Force -ErrorAction Stop
+                    Write-Log "Successfully uninstalled via Get-Package: $($pkg.Name)"
+                } catch {
+                    Write-Log "Failed to uninstall via Get-Package $($pkg.Name): $_"
+                }
+            }
+        } catch {
+            Write-Log "Get-Package method failed: $_"
+        }
+        
+        # Try removing via winget
+        try {
+            $wingetApps = @("Microsoft.QuickAssist", "Quick Assist", "Microsoft Quick Assist")
+            foreach ($app in $wingetApps) {
+                try {
+                    winget uninstall "$app" --accept-source-agreements --accept-package-agreements --silent -ErrorAction Stop | Out-Null
+                    Write-Log "Successfully uninstalled via winget: $app"
+                } catch {
+                    Write-Log "winget removal failed for $app: $_"
+                }
+            }
+        } catch {
+            Write-Log "winget removal failed: $_"
+        }
+        
+        # Remove Quick Assist folders
+        $quickAssistPaths = @(
+            "$env:LOCALAPPDATA\Microsoft\QuickAssist",
+            "$env:PROGRAMDATA\Microsoft\QuickAssist"
+        )
+        foreach ($path in $quickAssistPaths) {
+            if (Test-Path $path) {
+                Write-Log "Removing Quick Assist folder: $path"
+                try {
+                    Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
+                    Write-Log "Successfully removed folder: $path"
+                } catch {
+                    Write-Log "Failed to remove folder $path: $_"
+                }
+            }
+        }
+        
+        # Handle wildcard paths separately
+        $wildcardPaths = @(
+            "$env:LOCALAPPDATA\Packages",
+            "$env:PROGRAMFILES\WindowsApps"
+        )
+        foreach ($basePath in $wildcardPaths) {
+            if (Test-Path $basePath) {
+                try {
+                    $quickAssistDirs = Get-ChildItem -Path $basePath -Filter "*QuickAssist*" -Directory -ErrorAction SilentlyContinue
+                    foreach ($dir in $quickAssistDirs) {
+                        Write-Log "Removing Quick Assist folder: $($dir.FullName)"
+                        try {
+                            Remove-Item -Path $dir.FullName -Recurse -Force -ErrorAction Stop
+                            Write-Log "Successfully removed folder: $($dir.FullName)"
+                        } catch {
+                            Write-Log "Failed to remove folder $($dir.FullName): $_"
+                        }
+                    }
+                } catch {
+                    Write-Log "Failed to search for Quick Assist folders in $basePath: $_"
+                }
+            }
+        }
+        
+        # Remove from registry
+        try {
+            $regPaths = @(
+                "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+                "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+                "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
+            )
+            foreach ($regPath in $regPaths) {
+                Get-ItemProperty $regPath -ErrorAction SilentlyContinue | Where-Object {
+                    $_.DisplayName -like "*Quick Assist*" -or 
+                    $_.DisplayName -like "*QuickAssist*"
+                } | ForEach-Object {
+                    Write-Log "Found Quick Assist in registry: $($_.DisplayName)"
+                    if ($_.UninstallString) {
+                        $uninstallCmd = $_.UninstallString
+                        if ($uninstallCmd -match '^"(.+)"') {
+                            $uninstallExe = $matches[1]
+                            $uninstallArgs = $uninstallCmd.Substring($matches[0].Length).Trim()
+                            Write-Log "Running uninstaller: $uninstallExe $uninstallArgs /S"
+                            Start-Process -FilePath $uninstallExe -ArgumentList "$uninstallArgs /S" -Wait -ErrorAction SilentlyContinue
+                        } elseif ($uninstallCmd -match '^(.+\.exe)') {
+                            $uninstallExe = $matches[1]
+                            Write-Log "Running uninstaller: $uninstallExe /S"
+                            Start-Process -FilePath $uninstallExe -ArgumentList "/S" -Wait -ErrorAction SilentlyContinue
+                        }
+                    }
+                }
+            }
+        } catch {
+            Write-Log "Registry removal failed: $_"
+        }
+        
+        Write-Log "Microsoft Quick Assist removal completed"
     } catch {
         Write-Log "Error removing Quick Assist: $_"
     }
