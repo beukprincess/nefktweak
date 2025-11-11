@@ -1778,11 +1778,120 @@ $TabSystem.Controls.Add($BtnRevertSystem)
 # ---------- SYSTEM TWEAKS FUNCTIONS ----------
 function Apply-SystemTweak-0 { # Disable Windows Update
     try {
-        New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Force | Out-Null
-        Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoUpdate" -Value 1 -Type DWord -Force
-        Set-Service wuauserv -StartupType Disabled -ErrorAction SilentlyContinue
-        Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
-        Write-Log "Windows Update disabled"
+        Write-Log "Disabling Windows Update..."
+        
+        # Stop Windows Update service
+        try {
+            Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
+            Set-Service wuauserv -StartupType Disabled -ErrorAction SilentlyContinue
+            Write-Log "Windows Update service disabled"
+        } catch {
+            Write-Log "Could not disable Windows Update service: $_"
+        }
+        
+        # Stop related services
+        $updateServices = @("wuauserv", "UsoSvc", "WaaSMedicSvc", "BITS")
+        foreach ($service in $updateServices) {
+            try {
+                Stop-Service $service -Force -ErrorAction SilentlyContinue
+                Set-Service $service -StartupType Disabled -ErrorAction SilentlyContinue
+            } catch {}
+        }
+        
+        # Disable Windows Update via registry
+        try {
+            # Main Windows Update policy
+            New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Force -ErrorAction SilentlyContinue | Out-Null
+            New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Force -ErrorAction SilentlyContinue | Out-Null
+            Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoUpdate" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "AUOptions" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
+            
+            # Disable automatic updates
+            Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -Name "AUOptions" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
+            
+            # Disable Windows Update notifications
+            New-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Notifications\Settings\windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel" -Force -ErrorAction SilentlyContinue | Out-Null
+            Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Notifications\Settings\windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel" -Name "Enabled" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
+            
+            # Disable automatic restart after updates
+            New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Force -ErrorAction SilentlyContinue | Out-Null
+            Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "NoAutoRebootWithLoggedOnUsers" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "SetDisableUXWUAccess" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
+            
+            # Disable Windows Update via Windows Update service
+            Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\wuauserv" -Name "Start" -Value 4 -Type DWord -Force -ErrorAction SilentlyContinue
+            
+            Write-Log "Windows Update registry settings configured"
+        } catch {
+            Write-Log "Error setting Windows Update registry: $_"
+        }
+        
+        # Disable Delivery Optimization (P2P updates)
+        try {
+            New-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config" -Force -ErrorAction SilentlyContinue | Out-Null
+            Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config" -Name "DODownloadMode" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config" -Name "DOMinFileSizeToCache" -Value 10000 -Type DWord -Force -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config" -Name "DOMinRAMAllowedToPeer" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config" -Name "DOMinDiskSizeToAllowPeering" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
+            
+            # Disable Delivery Optimization service
+            Stop-Service dosvc -Force -ErrorAction SilentlyContinue
+            Set-Service dosvc -StartupType Disabled -ErrorAction SilentlyContinue
+            
+            Write-Log "Delivery Optimization disabled"
+        } catch {
+            Write-Log "Error disabling Delivery Optimization: $_"
+        }
+        
+        # Disable Windows Update via Group Policy (if available)
+        try {
+            # Disable automatic updates
+            New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Force -ErrorAction SilentlyContinue | Out-Null
+            Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "DisableWindowsUpdateAccess" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "RemoveAccessToAllWindowsUpdateFeatures" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
+        } catch {
+            Write-Log "Error setting Group Policy: $_"
+        }
+        
+        # Block Windows Update via hosts file (optional, more aggressive)
+        try {
+            $hostsPath = "$env:WINDIR\System32\drivers\etc\hosts"
+            $updateDomains = @(
+                "0.0.0.0 update.microsoft.com",
+                "0.0.0.0 download.microsoft.com",
+                "0.0.0.0 download.windowsupdate.com",
+                "0.0.0.0 windowsupdate.microsoft.com",
+                "0.0.0.0 wuauserv",
+                "0.0.0.0 wuauserv.microsoft.com",
+                "0.0.0.0 windowsupdate.com",
+                "0.0.0.0 fe2.update.microsoft.com",
+                "0.0.0.0 fe3.update.microsoft.com",
+                "0.0.0.0 fe4.update.microsoft.com",
+                "0.0.0.0 fe5.update.microsoft.com",
+                "0.0.0.0 fe6.update.microsoft.com"
+            )
+            
+            $hostsContent = Get-Content $hostsPath -ErrorAction SilentlyContinue
+            $needsUpdate = $false
+            foreach ($domain in $updateDomains) {
+                if ($hostsContent -notcontains $domain) {
+                    $needsUpdate = $true
+                    break
+                }
+            }
+            
+            if ($needsUpdate) {
+                Add-Content -Path $hostsPath -Value "`n# Windows Update Block - Added by NEFK Tweaker" -ErrorAction SilentlyContinue
+                foreach ($domain in $updateDomains) {
+                    Add-Content -Path $hostsPath -Value $domain -ErrorAction SilentlyContinue
+                }
+                Write-Log "Windows Update domains blocked in hosts file"
+            }
+        } catch {
+            Write-Log "Error blocking Windows Update domains: $_"
+        }
+        
+        Write-Log "Windows Update completely disabled"
     } catch {
         Write-Log "Error disabling Windows Update: $_"
     }
@@ -1837,17 +1946,85 @@ function Apply-SystemTweaks {
 
 function Revert-SystemTweaks {
     Write-Log "Reverting System Tweaks..."
-    Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoUpdate" -ErrorAction SilentlyContinue
-    Set-Service wuauserv -StartupType Manual -ErrorAction SilentlyContinue
+    
+    # Re-enable Windows Update
+    try {
+        Write-Log "Re-enabling Windows Update..."
+        
+        # Re-enable Windows Update services
+        $updateServices = @("wuauserv", "UsoSvc", "WaaSMedicSvc", "BITS", "dosvc")
+        foreach ($service in $updateServices) {
+            try {
+                Set-Service $service -StartupType Manual -ErrorAction SilentlyContinue
+                Start-Service $service -ErrorAction SilentlyContinue
+            } catch {}
+        }
+        
+        # Remove Windows Update registry restrictions
+        try {
+            Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoUpdate" -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "AUOptions" -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "DisableWindowsUpdateAccess" -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "RemoveAccessToAllWindowsUpdateFeatures" -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "NoAutoRebootWithLoggedOnUsers" -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "SetDisableUXWUAccess" -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\wuauserv" -Name "Start" -Value 3 -Type DWord -ErrorAction SilentlyContinue
+        } catch {}
+        
+        # Re-enable Delivery Optimization
+        try {
+            Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config" -Name "DODownloadMode" -Value 3 -Type DWord -ErrorAction SilentlyContinue
+            Set-Service dosvc -StartupType Automatic -ErrorAction SilentlyContinue
+            Start-Service dosvc -ErrorAction SilentlyContinue
+        } catch {}
+        
+        # Remove Windows Update blocks from hosts file
+        try {
+            $hostsPath = "$env:WINDIR\System32\drivers\etc\hosts"
+            $hostsContent = Get-Content $hostsPath -ErrorAction SilentlyContinue
+            $newContent = $hostsContent | Where-Object {
+                $_ -notlike "*Windows Update Block*" -and
+                $_ -notlike "*0.0.0.0 update.microsoft.com*" -and
+                $_ -notlike "*0.0.0.0 download.microsoft.com*" -and
+                $_ -notlike "*0.0.0.0 download.windowsupdate.com*" -and
+                $_ -notlike "*0.0.0.0 windowsupdate.microsoft.com*" -and
+                $_ -notlike "*0.0.0.0 wuauserv*" -and
+                $_ -notlike "*0.0.0.0 windowsupdate.com*" -and
+                $_ -notlike "*0.0.0.0 fe*.update.microsoft.com*"
+            }
+            $newContent | Set-Content $hostsPath -ErrorAction SilentlyContinue
+            Write-Log "Windows Update domains unblocked in hosts file"
+        } catch {
+            Write-Log "Error unblocking Windows Update domains: $_"
+        }
+        
+        Write-Log "Windows Update re-enabled"
+    } catch {
+        Write-Log "Error re-enabling Windows Update: $_"
+    }
+    
     # Re-enable UAC
-    Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableLUA" -Value 1 -Type DWord -ErrorAction SilentlyContinue
-    Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "ConsentPromptBehaviorAdmin" -Value 5 -Type DWord -ErrorAction SilentlyContinue
+    try {
+        Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableLUA" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "ConsentPromptBehaviorAdmin" -Value 5 -Type DWord -ErrorAction SilentlyContinue
+        Write-Log "UAC re-enabled"
+    } catch {
+        Write-Log "Error re-enabling UAC: $_"
+    }
+    
     # Re-enable firewall via PowerShell and registry
-    Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True -ErrorAction SilentlyContinue
-    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\StandardProfile" -Name "EnableFirewall" -Value 1 -Type DWord -ErrorAction SilentlyContinue
-    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\DomainProfile" -Name "EnableFirewall" -Value 1 -Type DWord -ErrorAction SilentlyContinue
-    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\PublicProfile" -Name "EnableFirewall" -Value 1 -Type DWord -ErrorAction SilentlyContinue
-    Set-Service mpssvc -StartupType Automatic -ErrorAction SilentlyContinue
+    try {
+        Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\StandardProfile" -Name "EnableFirewall" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\DomainProfile" -Name "EnableFirewall" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\PublicProfile" -Name "EnableFirewall" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        Set-Service mpssvc -StartupType Automatic -ErrorAction SilentlyContinue
+        Start-Service mpssvc -ErrorAction SilentlyContinue
+        Write-Log "Windows Firewall re-enabled"
+    } catch {
+        Write-Log "Error re-enabling Windows Firewall: $_"
+    }
+    
     Write-Log "System tweaks reverted to default."
 }
 
@@ -3472,9 +3649,6 @@ $BtnRestore.Add_Click({
     }
 })
 
-# ---------- CHROME AND AIDA64 CHECKBOXES ----------
-# Note: These checkboxes are now handled by Apply-AllTweaks function
-# They no longer install immediately when checked - installation happens when "Apply All Tweaks" is clicked
 
 # ---------- UI POLISH ----------
 $Form.Font = New-Object System.Drawing.Font("Segoe UI", 10)
