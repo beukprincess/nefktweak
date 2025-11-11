@@ -2206,7 +2206,7 @@ function Remove-App-1 { # Microsoft Xbox
                     winget uninstall "$app" --accept-source-agreements --accept-package-agreements --silent -ErrorAction Stop | Out-Null
                     Write-Log "Successfully uninstalled via winget: $app"
                 } catch {
-                    Write-Log "winget removal failed for $app: $_"
+                    Write-Log "winget removal failed for ${app}: $_"
                 }
             }
         } catch {
@@ -2226,7 +2226,7 @@ function Remove-App-1 { # Microsoft Xbox
                     Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
                     Write-Log "Successfully removed folder: $path"
                 } catch {
-                    Write-Log "Failed to remove folder $path: $_"
+                    Write-Log "Failed to remove folder ${path}: $_"
                     # Try with takeown and icacls
                     try {
                         takeown /F $path /R /D Y 2>&1 | Out-Null
@@ -2267,7 +2267,7 @@ function Remove-App-1 { # Microsoft Xbox
                         }
                     }
                 } catch {
-                    Write-Log "Failed to search for Xbox folders in $basePath: $_"
+                    Write-Log "Failed to search for Xbox folders in ${basePath}: $_"
                 }
             }
         }
@@ -2882,7 +2882,7 @@ function Remove-App-34 { # Microsoft Quick Assist
                     winget uninstall "$app" --accept-source-agreements --accept-package-agreements --silent -ErrorAction Stop | Out-Null
                     Write-Log "Successfully uninstalled via winget: $app"
                 } catch {
-                    Write-Log "winget removal failed for $app: $_"
+                    Write-Log "winget removal failed for ${app}: $_"
                 }
             }
         } catch {
@@ -2901,7 +2901,7 @@ function Remove-App-34 { # Microsoft Quick Assist
                     Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
                     Write-Log "Successfully removed folder: $path"
                 } catch {
-                    Write-Log "Failed to remove folder $path: $_"
+                    Write-Log "Failed to remove folder ${path}: $_"
                 }
             }
         }
@@ -2925,7 +2925,7 @@ function Remove-App-34 { # Microsoft Quick Assist
                         }
                     }
                 } catch {
-                    Write-Log "Failed to search for Quick Assist folders in $basePath: $_"
+                    Write-Log "Failed to search for Quick Assist folders in ${basePath}: $_"
                 }
             }
         }
