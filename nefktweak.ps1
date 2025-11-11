@@ -1,4 +1,10 @@
 
+# Check for administrator privileges
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Host "WARNING: Script is not running as Administrator. Some tweaks may fail." -ForegroundColor Yellow
+    Write-Host "For best results, run PowerShell as Administrator." -ForegroundColor Yellow
+}
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -104,10 +110,19 @@ $ChkFirefox.AutoSize = $true
 $ChkFirefox.Location = New-Object System.Drawing.Point(20, 70)
 $ChkFirefox.Font = New-Object System.Drawing.Font("Segoe UI", 10)
 
+# Checkbox for WinRAR installation
+$ChkWinRAR = New-Object System.Windows.Forms.CheckBox
+$ChkWinRAR.Text = "Install WinRAR"
+$ChkWinRAR.ForeColor = $ForeColor
+$ChkWinRAR.AutoSize = $true
+$ChkWinRAR.Location = New-Object System.Drawing.Point(20, 95)
+$ChkWinRAR.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+
 # Add checkboxes to panel
 $MainPanel.Controls.Add($ChkChrome)
 $MainPanel.Controls.Add($ChkAIDA64)
 $MainPanel.Controls.Add($ChkFirefox)
+$MainPanel.Controls.Add($ChkWinRAR)
 
 # Buttons at the bottom
 $BtnApply = New-Object System.Windows.Forms.Button
@@ -176,7 +191,7 @@ $Form.Add_FormClosing({
 })
 
 # ---------- CHECKLIST CREATOR ----------
-function New-ChecklistPanel($items) {
+function New-ChecklistPanel($items, $tooltips = $null) {
     $panel = New-Object System.Windows.Forms.Panel
     $panel.Dock = 'Fill'
     $panel.BackColor = $BackColor
@@ -188,6 +203,47 @@ function New-ChecklistPanel($items) {
     $list.BorderStyle = 'None'
     $list.CheckOnClick = $true
     $list.Items.AddRange($items)
+    
+    # Create ToolTip component
+    $toolTip = New-Object System.Windows.Forms.ToolTip
+    $toolTip.AutomaticDelay = 500
+    $toolTip.AutoPopDelay = 5000
+    $toolTip.InitialDelay = 500
+    $toolTip.ReshowDelay = 100
+    $toolTip.IsBalloon = $false
+    $toolTip.ToolTipTitle = ""
+    $toolTip.ShowAlways = $true
+    
+    # Add tooltips to each item
+    if ($null -ne $tooltips) {
+        # Store tooltips in list Tag for reference
+        $list.Tag = @{ Tooltips = $tooltips; ToolTip = $toolTip }
+        
+        # Set tooltip for the entire list control
+        # We'll use MouseMove to dynamically update tooltip based on item under cursor
+        $list.Add_MouseMove({
+            $point = $this.PointToClient([System.Windows.Forms.Cursor]::Position)
+            $index = $this.IndexFromPoint($point)
+            $tag = $this.Tag
+            
+            if ($null -ne $tag -and $null -ne $tag.Tooltips) {
+                if ($index -ge 0 -and $index -lt $tag.Tooltips.Count) {
+                    # Update tooltip text for the item
+                    $tag.ToolTip.SetToolTip($this, $tag.Tooltips[$index])
+                } else {
+                    # Clear tooltip when not over an item
+                    $tag.ToolTip.SetToolTip($this, "")
+                }
+            }
+        })
+        
+        $list.Add_MouseLeave({
+            $tag = $this.Tag
+            if ($null -ne $tag) {
+                $tag.ToolTip.SetToolTip($this, "")
+            }
+        })
+    }
     
     $btnCheckAll = New-Object System.Windows.Forms.Button
     $btnCheckAll.Text = "Check All"
@@ -248,7 +304,23 @@ $interfaceItems = @(
     "Show drive letter before name",
     "Display shortcut arrows"
 )
-$InterfacePanel,$InterfaceList = New-ChecklistPanel $interfaceItems
+$interfaceTooltips = @(
+    "Auto-restart on crash",
+    "Show all tray icons",
+    "Show clock seconds",
+    "Compact Explorer view",
+    "Enable startup sound",
+    "Dark theme mode",
+    "Classic context menu",
+    "Disable widgets panel",
+    "Show hidden files",
+    "Instant menu response",
+    "Disable notifications",
+    "100% wallpaper quality",
+    "Drive letters first",
+    "Show arrow icons"
+)
+$InterfacePanel,$InterfaceList = New-ChecklistPanel $interfaceItems $interfaceTooltips
 $TabInterface.Controls.Add($InterfacePanel)
 
 # Add Apply/Revert buttons for Interface tab
@@ -288,80 +360,136 @@ $TabInterface.Controls.Add($BtnRevertInterface)
 # ---------- INTERFACE TWEAKS FUNCTIONS ----------
 # Individual interface tweak functions
 function Apply-InterfaceTweak-0 { # AutoRestart Explorer
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" -Name "AutoRestartShell" -Value 1 -Type DWord
-    Write-Log "Enabled AutoRestart Explorer"
+    try {
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" -Name "AutoRestartShell" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        Write-Log "Enabled AutoRestart Explorer"
+    } catch {
+        Write-Log "Error enabling AutoRestart Explorer: $_"
+    }
 }
 
 function Apply-InterfaceTweak-1 { # Show all system icons in tray
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" -Name "EnableAutoTray" -Value 0 -Type DWord
-    Write-Log "All tray icons visible"
+    try {
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" -Name "EnableAutoTray" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Write-Log "All tray icons visible"
+    } catch {
+        Write-Log "Error showing all tray icons: $_"
+    }
 }
 
 function Apply-InterfaceTweak-2 { # Show seconds in system clock
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "ShowSecondsInSystemClock" -Value 1 -Type DWord
-    Write-Log "Show seconds in system clock"
+    try {
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "ShowSecondsInSystemClock" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        Write-Log "Show seconds in system clock"
+    } catch {
+        Write-Log "Error showing seconds in clock: $_"
+    }
 }
 
 function Apply-InterfaceTweak-3 { # Enable compact view in Explorer
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "UseCompactMode" -Value 1 -Type DWord
-    Write-Log "Compact view enabled"
+    try {
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "UseCompactMode" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        Write-Log "Compact view enabled"
+    } catch {
+        Write-Log "Error enabling compact view: $_"
+    }
 }
 
 function Apply-InterfaceTweak-4 { # Enable startup sound
-    Set-ItemProperty -Path "HKCU:\AppEvents\Schemes" -Name "(Default)" -Value ".Current"
-    Write-Log "Startup sound enabled"
+    try {
+        Set-ItemProperty -Path "HKCU:\AppEvents\Schemes" -Name "(Default)" -Value ".Current" -ErrorAction SilentlyContinue
+        Write-Log "Startup sound enabled"
+    } catch {
+        Write-Log "Error enabling startup sound: $_"
+    }
 }
 
 function Apply-InterfaceTweak-5 { # Enable dark mode
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "AppsUseLightTheme" -Value 0 -Type DWord
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "SystemUsesLightTheme" -Value 0 -Type DWord
-    Write-Log "Dark mode applied"
+    try {
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "AppsUseLightTheme" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "SystemUsesLightTheme" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Write-Log "Dark mode applied"
+    } catch {
+        Write-Log "Error enabling dark mode: $_"
+    }
 }
 
 function Apply-InterfaceTweak-6 { # Old context menu (Win 11)
-    New-Item -Path "HKCU:\Software\Classes\CLSID" -Force | Out-Null
-    New-Item -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}" -Force | Out-Null
-    New-Item -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" -Force | Out-Null
-    Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" -Name "(default)" -Value "" -Type String
-    Write-Log "Old context menu enabled"
+    try {
+        New-Item -Path "HKCU:\Software\Classes\CLSID" -Force | Out-Null
+        New-Item -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}" -Force | Out-Null
+        New-Item -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" -Force | Out-Null
+        Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" -Name "(default)" -Value "" -Type String -ErrorAction SilentlyContinue
+        Write-Log "Old context menu enabled"
+    } catch {
+        Write-Log "Error enabling old context menu: $_"
+    }
 }
 
 function Apply-InterfaceTweak-7 { # Disable Widgets
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarDa" -Value 0 -Type DWord
-    Write-Log "Widgets disabled"
+    try {
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarDa" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Write-Log "Widgets disabled"
+    } catch {
+        Write-Log "Error disabling Widgets: $_"
+    }
 }
 
 function Apply-InterfaceTweak-8 { # Show hidden files, extensions, system items
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "Hidden" -Value 1 -Type DWord
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "HideFileExt" -Value 0 -Type DWord
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "ShowSuperHidden" -Value 1 -Type DWord
-    Write-Log "Hidden files and extensions visible"
+    try {
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "Hidden" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "HideFileExt" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "ShowSuperHidden" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        Write-Log "Hidden files and extensions visible"
+    } catch {
+        Write-Log "Error showing hidden files: $_"
+    }
 }
 
 function Apply-InterfaceTweak-9 { # Disable context menu delay
-    Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value 0 -Type String
-    Write-Log "Menu delay disabled"
+    try {
+        Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value 0 -Type String -ErrorAction SilentlyContinue
+        Write-Log "Menu delay disabled"
+    } catch {
+        Write-Log "Error disabling menu delay: $_"
+    }
 }
 
 function Apply-InterfaceTweak-10 { # Disable notification center
-    New-Item -Path "HKCU:\Software\Policies\Microsoft\Windows\Explorer" -Force | Out-Null
-    Set-ItemProperty -Path "HKCU:\Software\Policies\Microsoft\Windows\Explorer" -Name "DisableNotificationCenter" -Value 1 -Type DWord -Force
-    Write-Log "Notification Center disabled"
+    try {
+        New-Item -Path "HKCU:\Software\Policies\Microsoft\Windows\Explorer" -Force | Out-Null
+        Set-ItemProperty -Path "HKCU:\Software\Policies\Microsoft\Windows\Explorer" -Name "DisableNotificationCenter" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
+        Write-Log "Notification Center disabled"
+    } catch {
+        Write-Log "Error disabling notification center: $_"
+    }
 }
 
 function Apply-InterfaceTweak-11 { # Reduce wallpaper compression
-    Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "JPEGImportQuality" -Value 100 -Type DWord
-    Write-Log "Wallpaper compression set to 100% quality"
+    try {
+        Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "JPEGImportQuality" -Value 100 -Type DWord -ErrorAction SilentlyContinue
+        Write-Log "Wallpaper compression set to 100% quality"
+    } catch {
+        Write-Log "Error setting wallpaper quality: $_"
+    }
 }
 
 function Apply-InterfaceTweak-12 { # Show drive letter before name
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" -Name "ShowDriveLettersFirst" -Value 4 -Type DWord
-    Write-Log "Drive letters shown before name"
+    try {
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" -Name "ShowDriveLettersFirst" -Value 4 -Type DWord -ErrorAction SilentlyContinue
+        Write-Log "Drive letters shown before name"
+    } catch {
+        Write-Log "Error showing drive letters: $_"
+    }
 }
 
 function Apply-InterfaceTweak-13 { # Display shortcut arrows
-    Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons" -Name "29" -ErrorAction SilentlyContinue
-    Write-Log "Shortcut arrows restored"
+    try {
+        Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons" -Name "29" -ErrorAction SilentlyContinue
+        Write-Log "Shortcut arrows restored"
+    } catch {
+        Write-Log "Error restoring shortcut arrows: $_"
+    }
 }
 
 # Legacy function for backward compatibility - applies only checked items
@@ -383,22 +511,26 @@ function Apply-InterfaceTweaks {
 function Revert-InterfaceTweaks {
     Write-Log "Reverting Interface Tweaks..."
 
-    Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" -Name "AutoRestartShell" -ErrorAction SilentlyContinue
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" -Name "EnableAutoTray" -Value 1 -Type DWord
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "ShowSecondsInSystemClock" -Value 0 -Type DWord
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "UseCompactMode" -Value 0 -Type DWord
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "AppsUseLightTheme" -Value 1 -Type DWord
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "SystemUsesLightTheme" -Value 1 -Type DWord
-    Remove-Item -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}" -Recurse -Force -ErrorAction SilentlyContinue
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarDa" -Value 1 -Type DWord
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "Hidden" -Value 2 -Type DWord
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "HideFileExt" -Value 1 -Type DWord
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "ShowSuperHidden" -Value 0 -Type DWord
-    Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value 400 -Type String
-    Remove-ItemProperty -Path "HKCU:\Software\Policies\Microsoft\Windows\Explorer" -Name "DisableNotificationCenter" -ErrorAction SilentlyContinue
-    Remove-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "JPEGImportQuality" -ErrorAction SilentlyContinue
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" -Name "ShowDriveLettersFirst" -Value 0 -Type DWord
-    Write-Log "Interface tweaks reverted to default."
+    try {
+        Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" -Name "AutoRestartShell" -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" -Name "EnableAutoTray" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "ShowSecondsInSystemClock" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "UseCompactMode" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "AppsUseLightTheme" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "SystemUsesLightTheme" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        Remove-Item -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}" -Recurse -Force -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarDa" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "Hidden" -Value 2 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "HideFileExt" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "ShowSuperHidden" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value 400 -Type String -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path "HKCU:\Software\Policies\Microsoft\Windows\Explorer" -Name "DisableNotificationCenter" -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "JPEGImportQuality" -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" -Name "ShowDriveLettersFirst" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Write-Log "Interface tweaks reverted to default."
+    } catch {
+        Write-Log "Error reverting Interface tweaks: $_"
+    }
 }
 
 # ---------- PERFORMANCE TWEAKS FUNCTIONS ----------
@@ -418,8 +550,12 @@ function Apply-PerformanceTweak-0 { # Disable all UI animations
 }
 
 function Apply-PerformanceTweak-1 { # Disable transparency effects
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "EnableTransparency" -Value 0 -Type DWord
-    Write-Log "Transparency disabled"
+    try {
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "EnableTransparency" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Write-Log "Transparency disabled"
+    } catch {
+        Write-Log "Error disabling transparency: $_"
+    }
 }
 
 function Apply-PerformanceTweak-2 { # Remove startup delay
@@ -458,42 +594,70 @@ function Apply-PerformanceTweak-3 { # Disable background apps
 }
 
 function Apply-PerformanceTweak-4 { # Disable Prefetch and Superfetch
-    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 0 -Type DWord
-    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnableSuperfetch" -Value 0 -Type DWord
-    Write-Log "Prefetch and Superfetch disabled"
+    try {
+        Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnableSuperfetch" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Write-Log "Prefetch and Superfetch disabled"
+    } catch {
+        Write-Log "Error disabling Prefetch and Superfetch: $_"
+    }
 }
 
 function Apply-PerformanceTweak-5 { # Disable Windows tips and suggestions
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" -Name "SubscribedContent-338387Enabled" -Value 0 -Type DWord
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" -Name "SubscribedContent-353694Enabled" -Value 0 -Type DWord
-    Write-Log "Windows tips disabled"
+    try {
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" -Name "SubscribedContent-338387Enabled" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" -Name "SubscribedContent-353694Enabled" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Write-Log "Windows tips disabled"
+    } catch {
+        Write-Log "Error disabling Windows tips: $_"
+    }
 }
 
 function Apply-PerformanceTweak-6 { # Disable telemetry tasks
-    Get-ScheduledTask | Where-Object {$_.TaskName -match "Telemetry" -or $_.TaskName -match "CEIP"} | Disable-ScheduledTask -ErrorAction SilentlyContinue
-    Write-Log "Telemetry scheduled tasks disabled"
+    try {
+        Get-ScheduledTask | Where-Object {$_.TaskName -match "Telemetry" -or $_.TaskName -match "CEIP"} | Disable-ScheduledTask -ErrorAction SilentlyContinue
+        Write-Log "Telemetry scheduled tasks disabled"
+    } catch {
+        Write-Log "Error disabling telemetry tasks: $_"
+    }
 }
 
 function Apply-PerformanceTweak-7 { # Disable Windows Error Reporting
-    Set-Service WerSvc -StartupType Disabled -ErrorAction SilentlyContinue
-    Stop-Service WerSvc -ErrorAction SilentlyContinue
-    Write-Log "Windows Error Reporting service disabled"
+    try {
+        Set-Service WerSvc -StartupType Disabled -ErrorAction SilentlyContinue
+        Stop-Service WerSvc -Force -ErrorAction SilentlyContinue
+        Write-Log "Windows Error Reporting service disabled"
+    } catch {
+        Write-Log "Error disabling Windows Error Reporting: $_"
+    }
 }
 
 function Apply-PerformanceTweak-8 { # Disable hibernation
-    powercfg /hibernate off | Out-Null
-    Write-Log "Hibernation disabled"
+    try {
+        powercfg /hibernate off | Out-Null
+        Write-Log "Hibernation disabled"
+    } catch {
+        Write-Log "Error disabling hibernation: $_"
+    }
 }
 
 function Apply-PerformanceTweak-9 { # Set maximum performance power plan
-    powercfg -setactive SCHEME_MIN | Out-Null
-    Write-Log "Maximum performance power plan activated"
+    try {
+        powercfg -setactive SCHEME_MIN | Out-Null
+        Write-Log "Maximum performance power plan activated"
+    } catch {
+        Write-Log "Error setting power plan: $_"
+    }
 }
 
 function Apply-PerformanceTweak-10 { # Set visual effects to performance mode
-    New-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" -Force | Out-Null
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" -Name "VisualFXSetting" -Value 2 -Type DWord
-    Write-Log "Windows visual effects set to performance mode"
+    try {
+        New-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" -Force | Out-Null
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" -Name "VisualFXSetting" -Value 2 -Type DWord -ErrorAction SilentlyContinue
+        Write-Log "Windows visual effects set to performance mode"
+    } catch {
+        Write-Log "Error setting visual effects: $_"
+    }
 }
 
 function Apply-PerformanceTweak-11 { # Disable all scheduled tasks
@@ -755,7 +919,26 @@ $performanceItems = @(
     "Disable VBS (Virtualization-Based Security)",
     "Optimize Explorer shell loading"
 )
-$PerformancePanel,$PerformanceList = New-ChecklistPanel $performanceItems
+$performanceTooltips = @(
+    "No animations",
+    "Disable transparency",
+    "Faster boot",
+    "Stop background apps",
+    "Disable prefetch",
+    "No tips",
+    "Disable telemetry",
+    "No error reports",
+    "No hibernation",
+    "Max power plan",
+    "Performance mode",
+    "Disable tasks",
+    "No indexing",
+    "Fast fonts",
+    "Quick boot",
+    "Disable VBS",
+    "Fast Explorer"
+)
+$PerformancePanel,$PerformanceList = New-ChecklistPanel $performanceItems $performanceTooltips
 $TabPerformance.Controls.Add($PerformancePanel)
 
 # Add Apply/Revert buttons for Performance tab
@@ -799,7 +982,13 @@ $servicesItems = @(
     "Windows Error Reporting",
     "Windows Telemetry"
 )
-$ServicesPanel,$ServicesList = New-ChecklistPanel $servicesItems
+$servicesTooltips = @(
+    "Disable updates",
+    "Disable search",
+    "No error reports",
+    "Disable telemetry"
+)
+$ServicesPanel,$ServicesList = New-ChecklistPanel $servicesItems $servicesTooltips
 $TabServices.Controls.Add($ServicesPanel)
 
 # Add Apply/Revert buttons for Services tab
@@ -909,7 +1098,14 @@ $privacyItems = @(
     "Disable Cortana",
     "Disable Windows tips"
 )
-$PrivacyPanel,$PrivacyList = New-ChecklistPanel $privacyItems
+$privacyTooltips = @(
+    "No telemetry",
+    "No ads ID",
+    "No location",
+    "Disable Cortana",
+    "No tips"
+)
+$PrivacyPanel,$PrivacyList = New-ChecklistPanel $privacyItems $privacyTooltips
 $TabPrivacy.Controls.Add($PrivacyPanel)
 
 # Add Apply/Revert buttons for Privacy tab
@@ -1063,7 +1259,12 @@ $systemItems = @(
     "Disable UAC",
     "Disable Windows Firewall"
 )
-$SystemPanel,$SystemList = New-ChecklistPanel $systemItems
+$systemTooltips = @(
+    "No updates",
+    "No UAC prompts",
+    "Disable firewall"
+)
+$SystemPanel,$SystemList = New-ChecklistPanel $systemItems $systemTooltips
 $TabSystem.Controls.Add($SystemPanel)
 
 # Add Apply/Revert buttons for System tab
@@ -1227,7 +1428,46 @@ $appsItems = @(
     "Microsoft Clipchamp",
     "Microsoft Phone Link"
 )
-$AppsPanel,$AppsList = New-ChecklistPanel $appsItems
+$appsTooltips = @(
+    "Cloud storage",
+    "Gaming app",
+    "Note app",
+    "Social network",
+    "App store",
+    "Web browser",
+    "Old browser",
+    "Chat app",
+    "Video calls",
+    "Card games",
+    "News feed",
+    "Weather app",
+    "Maps app",
+    "Photo viewer",
+    "Camera app",
+    "Calculator",
+    "Email client",
+    "Contacts app",
+    "Phone sync",
+    "Task manager",
+    "Help center",
+    "Tips app",
+    "Getting started",
+    "Office hub",
+    "Automation tool",
+    "Parental controls",
+    "3D viewer",
+    "3D paint",
+    "VR portal",
+    "VR app",
+    "Feedback app",
+    "Security app",
+    "Terminal app",
+    "Media player",
+    "Remote assist",
+    "Video editor",
+    "Phone link"
+)
+$AppsPanel,$AppsList = New-ChecklistPanel $appsItems $appsTooltips
 $TabApps.Controls.Add($AppsPanel)
 
 # Add Apply/Revert buttons for Remove Apps tab
@@ -1253,12 +1493,63 @@ $TabApps.Controls.Add($BtnRemoveApps)
 $TabApps.Controls.Add($BtnRestoreApps)
 
 # ---------- REMOVE APPS FUNCTIONS ----------
+# Universal function to remove AppxPackage properly
+function Remove-AppxPackageUniversal {
+    param(
+        [string[]]$PackageNames,
+        [string]$DisplayNamePattern = ""
+    )
+    
+    foreach ($packageName in $PackageNames) {
+        try {
+            # Remove for current user
+            $packages = Get-AppxPackage | Where-Object {$_.Name -eq $packageName -or $_.Name -like "*$packageName*"}
+            foreach ($pkg in $packages) {
+                Remove-AppxPackage -Package $pkg.PackageFullName -ErrorAction SilentlyContinue
+            }
+            
+            # Remove for all users (requires admin)
+            $allUserPackages = Get-AppxPackage -AllUsers | Where-Object {$_.Name -eq $packageName -or $_.Name -like "*$packageName*"}
+            foreach ($pkg in $allUserPackages) {
+                Remove-AppxPackage -Package $pkg.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+            }
+        } catch {
+            Write-Log "Error removing package $packageName : $_"
+        }
+    }
+    
+    # Remove provisioned packages
+    if ($DisplayNamePattern) {
+        try {
+            Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*$DisplayNamePattern*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        } catch {
+            Write-Log "Error removing provisioned package: $_"
+        }
+    }
+}
+
 function Remove-App-0 { # Microsoft OneDrive
     Write-Log "Removing Microsoft OneDrive..."
     try {
+        # Stop OneDrive process
         Stop-Process -Name OneDrive -Force -ErrorAction SilentlyContinue
-        Get-AppxPackage -Name "Microsoft.OneDrive" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        
+        # Remove for current user
+        Get-AppxPackage | Where-Object {$_.Name -like "*OneDrive*"} | Remove-AppxPackage -ErrorAction SilentlyContinue
+        
+        # Remove for all users (requires admin)
+        Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*OneDrive*"} | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
+        
+        # Remove provisioned packages
         Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*OneDrive*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        
+        # Also try uninstalling OneDrive setup
+        $onedrivePath = "$env:LOCALAPPDATA\Microsoft\OneDrive\OneDriveSetup.exe"
+        if (Test-Path $onedrivePath) {
+            Start-Process -FilePath $onedrivePath -ArgumentList "/uninstall" -Wait -ErrorAction SilentlyContinue
+        }
+        
         Write-Log "Microsoft OneDrive removed"
     } catch {
         Write-Log "Error removing OneDrive: $_"
@@ -1268,12 +1559,8 @@ function Remove-App-0 { # Microsoft OneDrive
 function Remove-App-1 { # Microsoft Xbox
     Write-Log "Removing Microsoft Xbox..."
     try {
-        Get-AppxPackage -Name "Microsoft.XboxApp" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxPackage -Name "Microsoft.XboxGameOverlay" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxPackage -Name "Microsoft.XboxGamingOverlay" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxPackage -Name "Microsoft.XboxIdentityProvider" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxPackage -Name "Microsoft.XboxSpeechToTextOverlay" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Xbox*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        $xboxPackages = @("Microsoft.XboxApp", "Microsoft.XboxGameOverlay", "Microsoft.XboxGamingOverlay", "Microsoft.XboxIdentityProvider", "Microsoft.XboxSpeechToTextOverlay")
+        Remove-AppxPackageUniversal -PackageNames $xboxPackages -DisplayNamePattern "Xbox"
         Write-Log "Microsoft Xbox removed"
     } catch {
         Write-Log "Error removing Xbox: $_"
@@ -1283,8 +1570,7 @@ function Remove-App-1 { # Microsoft Xbox
 function Remove-App-2 { # Microsoft OneNote
     Write-Log "Removing Microsoft OneNote..."
     try {
-        Get-AppxPackage -Name "Microsoft.Office.OneNote" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*OneNote*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.Office.OneNote") -DisplayNamePattern "OneNote"
         Write-Log "Microsoft OneNote removed"
     } catch {
         Write-Log "Error removing OneNote: $_"
@@ -1294,8 +1580,7 @@ function Remove-App-2 { # Microsoft OneNote
 function Remove-App-3 { # Microsoft LinkedIn
     Write-Log "Removing Microsoft LinkedIn..."
     try {
-        Get-AppxPackage -Name "Microsoft.LinkedIn.LinkedIn" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*LinkedIn*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.LinkedIn.LinkedIn") -DisplayNamePattern "LinkedIn"
         Write-Log "Microsoft LinkedIn removed"
     } catch {
         Write-Log "Error removing LinkedIn: $_"
@@ -1305,8 +1590,7 @@ function Remove-App-3 { # Microsoft LinkedIn
 function Remove-App-4 { # Microsoft Store
     Write-Log "Removing Microsoft Store..."
     try {
-        Get-AppxPackage -Name "Microsoft.WindowsStore" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*WindowsStore*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.WindowsStore") -DisplayNamePattern "WindowsStore"
         Write-Log "Microsoft Store removed"
     } catch {
         Write-Log "Error removing Microsoft Store: $_"
@@ -1316,9 +1600,7 @@ function Remove-App-4 { # Microsoft Store
 function Remove-App-5 { # Microsoft Edge (Chromium)
     Write-Log "Removing Microsoft Edge (Chromium)..."
     try {
-        Get-AppxPackage -Name "Microsoft.MicrosoftEdge.Stable" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxPackage -Name "Microsoft.MicrosoftEdge" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*MicrosoftEdge*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.MicrosoftEdge.Stable", "Microsoft.MicrosoftEdge") -DisplayNamePattern "MicrosoftEdge"
         # Also try winget method
         winget uninstall "Microsoft Edge" --accept-source-agreements --accept-package-agreements -ErrorAction SilentlyContinue | Out-Null
         Write-Log "Microsoft Edge (Chromium) removed"
@@ -1330,7 +1612,7 @@ function Remove-App-5 { # Microsoft Edge (Chromium)
 function Remove-App-6 { # Microsoft Edge (Legacy)
     Write-Log "Removing Microsoft Edge (Legacy)..."
     try {
-        Get-AppxPackage -Name "Microsoft.MicrosoftEdge" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.MicrosoftEdge") -DisplayNamePattern "MicrosoftEdge"
         Write-Log "Microsoft Edge (Legacy) removed"
     } catch {
         Write-Log "Error removing Edge Legacy: $_"
@@ -1340,8 +1622,7 @@ function Remove-App-6 { # Microsoft Edge (Legacy)
 function Remove-App-7 { # Microsoft Teams
     Write-Log "Removing Microsoft Teams..."
     try {
-        Get-AppxPackage -Name "Microsoft.Teams" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Teams*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.Teams") -DisplayNamePattern "Teams"
         Write-Log "Microsoft Teams removed"
     } catch {
         Write-Log "Error removing Teams: $_"
@@ -1351,8 +1632,7 @@ function Remove-App-7 { # Microsoft Teams
 function Remove-App-8 { # Microsoft Skype
     Write-Log "Removing Microsoft Skype..."
     try {
-        Get-AppxPackage -Name "Microsoft.SkypeApp" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Skype*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.SkypeApp") -DisplayNamePattern "Skype"
         Write-Log "Microsoft Skype removed"
     } catch {
         Write-Log "Error removing Skype: $_"
@@ -1362,8 +1642,7 @@ function Remove-App-8 { # Microsoft Skype
 function Remove-App-9 { # Microsoft Solitaire Collection
     Write-Log "Removing Microsoft Solitaire Collection..."
     try {
-        Get-AppxPackage -Name "Microsoft.MicrosoftSolitaireCollection" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Solitaire*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.MicrosoftSolitaireCollection") -DisplayNamePattern "Solitaire"
         Write-Log "Microsoft Solitaire Collection removed"
     } catch {
         Write-Log "Error removing Solitaire: $_"
@@ -1373,8 +1652,7 @@ function Remove-App-9 { # Microsoft Solitaire Collection
 function Remove-App-10 { # Microsoft News
     Write-Log "Removing Microsoft News..."
     try {
-        Get-AppxPackage -Name "Microsoft.BingNews" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*BingNews*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.BingNews") -DisplayNamePattern "BingNews"
         Write-Log "Microsoft News removed"
     } catch {
         Write-Log "Error removing News: $_"
@@ -1384,8 +1662,7 @@ function Remove-App-10 { # Microsoft News
 function Remove-App-11 { # Microsoft Weather
     Write-Log "Removing Microsoft Weather..."
     try {
-        Get-AppxPackage -Name "Microsoft.BingWeather" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*BingWeather*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.BingWeather") -DisplayNamePattern "BingWeather"
         Write-Log "Microsoft Weather removed"
     } catch {
         Write-Log "Error removing Weather: $_"
@@ -1395,8 +1672,7 @@ function Remove-App-11 { # Microsoft Weather
 function Remove-App-12 { # Microsoft Maps
     Write-Log "Removing Microsoft Maps..."
     try {
-        Get-AppxPackage -Name "Microsoft.WindowsMaps" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*WindowsMaps*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.WindowsMaps") -DisplayNamePattern "WindowsMaps"
         Write-Log "Microsoft Maps removed"
     } catch {
         Write-Log "Error removing Maps: $_"
@@ -1406,8 +1682,7 @@ function Remove-App-12 { # Microsoft Maps
 function Remove-App-13 { # Microsoft Photos
     Write-Log "Removing Microsoft Photos..."
     try {
-        Get-AppxPackage -Name "Microsoft.Windows.Photos" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Photos*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.Windows.Photos") -DisplayNamePattern "Photos"
         Write-Log "Microsoft Photos removed"
     } catch {
         Write-Log "Error removing Photos: $_"
@@ -1417,8 +1692,7 @@ function Remove-App-13 { # Microsoft Photos
 function Remove-App-14 { # Microsoft Camera
     Write-Log "Removing Microsoft Camera..."
     try {
-        Get-AppxPackage -Name "Microsoft.WindowsCamera" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*WindowsCamera*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.WindowsCamera") -DisplayNamePattern "WindowsCamera"
         Write-Log "Microsoft Camera removed"
     } catch {
         Write-Log "Error removing Camera: $_"
@@ -1428,8 +1702,7 @@ function Remove-App-14 { # Microsoft Camera
 function Remove-App-15 { # Microsoft Calculator
     Write-Log "Removing Microsoft Calculator..."
     try {
-        Get-AppxPackage -Name "Microsoft.WindowsCalculator" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Calculator*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.WindowsCalculator") -DisplayNamePattern "Calculator"
         Write-Log "Microsoft Calculator removed"
     } catch {
         Write-Log "Error removing Calculator: $_"
@@ -1439,8 +1712,7 @@ function Remove-App-15 { # Microsoft Calculator
 function Remove-App-16 { # Microsoft Mail & Calendar
     Write-Log "Removing Microsoft Mail & Calendar..."
     try {
-        Get-AppxPackage -Name "microsoft.windowscommunicationsapps" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*communicationsapps*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("microsoft.windowscommunicationsapps") -DisplayNamePattern "communicationsapps"
         Write-Log "Microsoft Mail & Calendar removed"
     } catch {
         Write-Log "Error removing Mail & Calendar: $_"
@@ -1450,8 +1722,7 @@ function Remove-App-16 { # Microsoft Mail & Calendar
 function Remove-App-17 { # Microsoft People
     Write-Log "Removing Microsoft People..."
     try {
-        Get-AppxPackage -Name "Microsoft.People" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*People*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.People") -DisplayNamePattern "People"
         Write-Log "Microsoft People removed"
     } catch {
         Write-Log "Error removing People: $_"
@@ -1461,8 +1732,7 @@ function Remove-App-17 { # Microsoft People
 function Remove-App-18 { # Microsoft Your Phone
     Write-Log "Removing Microsoft Your Phone..."
     try {
-        Get-AppxPackage -Name "Microsoft.YourPhone" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*YourPhone*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.YourPhone") -DisplayNamePattern "YourPhone"
         Write-Log "Microsoft Your Phone removed"
     } catch {
         Write-Log "Error removing Your Phone: $_"
@@ -1472,8 +1742,7 @@ function Remove-App-18 { # Microsoft Your Phone
 function Remove-App-19 { # Microsoft To Do
     Write-Log "Removing Microsoft To Do..."
     try {
-        Get-AppxPackage -Name "Microsoft.Todos" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Todos*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.Todos") -DisplayNamePattern "Todos"
         Write-Log "Microsoft To Do removed"
     } catch {
         Write-Log "Error removing To Do: $_"
@@ -1483,8 +1752,7 @@ function Remove-App-19 { # Microsoft To Do
 function Remove-App-20 { # Microsoft Get Help
     Write-Log "Removing Microsoft Get Help..."
     try {
-        Get-AppxPackage -Name "Microsoft.GetHelp" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*GetHelp*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.GetHelp") -DisplayNamePattern "GetHelp"
         Write-Log "Microsoft Get Help removed"
     } catch {
         Write-Log "Error removing Get Help: $_"
@@ -1494,8 +1762,7 @@ function Remove-App-20 { # Microsoft Get Help
 function Remove-App-21 { # Microsoft Tips
     Write-Log "Removing Microsoft Tips..."
     try {
-        Get-AppxPackage -Name "Microsoft.Getstarted" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Getstarted*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.Getstarted") -DisplayNamePattern "Getstarted"
         Write-Log "Microsoft Tips removed"
     } catch {
         Write-Log "Error removing Tips: $_"
@@ -1505,7 +1772,7 @@ function Remove-App-21 { # Microsoft Tips
 function Remove-App-22 { # Microsoft Get Started
     Write-Log "Removing Microsoft Get Started..."
     try {
-        Get-AppxPackage -Name "Microsoft.Getstarted" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.Getstarted") -DisplayNamePattern "Getstarted"
         Write-Log "Microsoft Get Started removed"
     } catch {
         Write-Log "Error removing Get Started: $_"
@@ -1515,8 +1782,7 @@ function Remove-App-22 { # Microsoft Get Started
 function Remove-App-23 { # Microsoft Office Hub
     Write-Log "Removing Microsoft Office Hub..."
     try {
-        Get-AppxPackage -Name "Microsoft.MicrosoftOfficeHub" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*OfficeHub*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.MicrosoftOfficeHub") -DisplayNamePattern "OfficeHub"
         Write-Log "Microsoft Office Hub removed"
     } catch {
         Write-Log "Error removing Office Hub: $_"
@@ -1526,7 +1792,7 @@ function Remove-App-23 { # Microsoft Office Hub
 function Remove-App-24 { # Microsoft Power Automate
     Write-Log "Removing Microsoft Power Automate..."
     try {
-        Get-AppxPackage -Name "Microsoft.PowerAutomateDesktop" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.PowerAutomateDesktop") -DisplayNamePattern "PowerAutomate"
         Write-Log "Microsoft Power Automate removed"
     } catch {
         Write-Log "Error removing Power Automate: $_"
@@ -1536,7 +1802,7 @@ function Remove-App-24 { # Microsoft Power Automate
 function Remove-App-25 { # Microsoft Family Safety
     Write-Log "Removing Microsoft Family Safety..."
     try {
-        Get-AppxPackage -Name "Microsoft.ParentalControls" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.ParentalControls") -DisplayNamePattern "ParentalControls"
         Write-Log "Microsoft Family Safety removed"
     } catch {
         Write-Log "Error removing Family Safety: $_"
@@ -1546,8 +1812,7 @@ function Remove-App-25 { # Microsoft Family Safety
 function Remove-App-26 { # Microsoft 3D Viewer
     Write-Log "Removing Microsoft 3D Viewer..."
     try {
-        Get-AppxPackage -Name "Microsoft.Microsoft3DViewer" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*3DViewer*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.Microsoft3DViewer") -DisplayNamePattern "3DViewer"
         Write-Log "Microsoft 3D Viewer removed"
     } catch {
         Write-Log "Error removing 3D Viewer: $_"
@@ -1557,8 +1822,7 @@ function Remove-App-26 { # Microsoft 3D Viewer
 function Remove-App-27 { # Microsoft Paint 3D
     Write-Log "Removing Microsoft Paint 3D..."
     try {
-        Get-AppxPackage -Name "Microsoft.MSPaint" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*MSPaint*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.MSPaint") -DisplayNamePattern "MSPaint"
         Write-Log "Microsoft Paint 3D removed"
     } catch {
         Write-Log "Error removing Paint 3D: $_"
@@ -1568,8 +1832,7 @@ function Remove-App-27 { # Microsoft Paint 3D
 function Remove-App-28 { # Microsoft Mixed Reality Portal
     Write-Log "Removing Microsoft Mixed Reality Portal..."
     try {
-        Get-AppxPackage -Name "Microsoft.MixedReality.Portal" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*MixedReality*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.MixedReality.Portal") -DisplayNamePattern "MixedReality"
         Write-Log "Microsoft Mixed Reality Portal removed"
     } catch {
         Write-Log "Error removing Mixed Reality Portal: $_"
@@ -1579,7 +1842,7 @@ function Remove-App-28 { # Microsoft Mixed Reality Portal
 function Remove-App-29 { # Microsoft Windows Mixed Reality
     Write-Log "Removing Microsoft Windows Mixed Reality..."
     try {
-        Get-AppxPackage -Name "Microsoft.MixedReality.Portal" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.MixedReality.Portal") -DisplayNamePattern "MixedReality"
         Write-Log "Microsoft Windows Mixed Reality removed"
     } catch {
         Write-Log "Error removing Windows Mixed Reality: $_"
@@ -1589,8 +1852,7 @@ function Remove-App-29 { # Microsoft Windows Mixed Reality
 function Remove-App-30 { # Microsoft Feedback Hub
     Write-Log "Removing Microsoft Feedback Hub..."
     try {
-        Get-AppxPackage -Name "Microsoft.WindowsFeedbackHub" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*FeedbackHub*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.WindowsFeedbackHub") -DisplayNamePattern "FeedbackHub"
         Write-Log "Microsoft Feedback Hub removed"
     } catch {
         Write-Log "Error removing Feedback Hub: $_"
@@ -1600,7 +1862,7 @@ function Remove-App-30 { # Microsoft Feedback Hub
 function Remove-App-31 { # Microsoft Windows Security
     Write-Log "Removing Microsoft Windows Security..."
     try {
-        Get-AppxPackage -Name "Microsoft.Windows.SecureAssessmentBrowser" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.Windows.SecureAssessmentBrowser") -DisplayNamePattern "SecureAssessmentBrowser"
         Write-Log "Microsoft Windows Security removed"
     } catch {
         Write-Log "Error removing Windows Security: $_"
@@ -1610,8 +1872,7 @@ function Remove-App-31 { # Microsoft Windows Security
 function Remove-App-32 { # Microsoft Windows Terminal
     Write-Log "Removing Microsoft Windows Terminal..."
     try {
-        Get-AppxPackage -Name "Microsoft.WindowsTerminal" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*WindowsTerminal*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.WindowsTerminal") -DisplayNamePattern "WindowsTerminal"
         Write-Log "Microsoft Windows Terminal removed"
     } catch {
         Write-Log "Error removing Windows Terminal: $_"
@@ -1621,8 +1882,7 @@ function Remove-App-32 { # Microsoft Windows Terminal
 function Remove-App-33 { # Microsoft Windows Media Player
     Write-Log "Removing Microsoft Windows Media Player..."
     try {
-        Get-AppxPackage -Name "Microsoft.ZuneMusic" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxPackage -Name "Microsoft.ZuneVideo" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.ZuneMusic", "Microsoft.ZuneVideo") -DisplayNamePattern "Zune"
         Write-Log "Microsoft Windows Media Player removed"
     } catch {
         Write-Log "Error removing Windows Media Player: $_"
@@ -1632,7 +1892,7 @@ function Remove-App-33 { # Microsoft Windows Media Player
 function Remove-App-34 { # Microsoft Quick Assist
     Write-Log "Removing Microsoft Quick Assist..."
     try {
-        Get-AppxPackage -Name "Microsoft.Windows.AssignedAccessLockApp" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.Windows.AssignedAccessLockApp") -DisplayNamePattern "AssignedAccessLockApp"
         Write-Log "Microsoft Quick Assist removed"
     } catch {
         Write-Log "Error removing Quick Assist: $_"
@@ -1642,8 +1902,7 @@ function Remove-App-34 { # Microsoft Quick Assist
 function Remove-App-35 { # Microsoft Clipchamp
     Write-Log "Removing Microsoft Clipchamp..."
     try {
-        Get-AppxPackage -Name "Microsoft.Clipchamp" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*Clipchamp*"} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.Clipchamp") -DisplayNamePattern "Clipchamp"
         Write-Log "Microsoft Clipchamp removed"
     } catch {
         Write-Log "Error removing Clipchamp: $_"
@@ -1653,7 +1912,7 @@ function Remove-App-35 { # Microsoft Clipchamp
 function Remove-App-36 { # Microsoft Phone Link
     Write-Log "Removing Microsoft Phone Link..."
     try {
-        Get-AppxPackage -Name "Microsoft.YourPhone" -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
+        Remove-AppxPackageUniversal -PackageNames @("Microsoft.YourPhone") -DisplayNamePattern "YourPhone"
         Write-Log "Microsoft Phone Link removed"
     } catch {
         Write-Log "Error removing Phone Link: $_"
@@ -1860,6 +2119,23 @@ function Apply-AllTweaks {
         }
     }
     
+    # Check and install WinRAR if checked
+    if ($ChkWinRAR.Checked) {
+        Write-Log "Installing WinRAR..."
+        try {
+            $wingetCheck = Get-Command winget -ErrorAction SilentlyContinue
+            if ($wingetCheck) {
+                Start-Process -FilePath "winget" -ArgumentList "install", "RARLab.WinRAR", "--accept-package-agreements", "--accept-source-agreements" -NoNewWindow -Wait
+                Write-Log "WinRAR installation completed"
+                $totalApplied++
+            } else {
+                Write-Log "winget not found, WinRAR installation skipped"
+            }
+        } catch {
+            Write-Log "Error installing WinRAR: $_"
+        }
+    }
+    
     Write-Log "Total applied: $totalApplied tweak(s)/installation(s)"
     if ($totalApplied -gt 0) {
         [System.Windows.Forms.MessageBox]::Show("Applied $totalApplied selected tweak(s) successfully.","NEFK Tweaker",[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Information)
@@ -1999,6 +2275,10 @@ $BtnRestore.Add_Click({
         [System.Windows.Forms.MessageBox]::Show($errorMsg,"NEFK Tweaker",[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning)
     }
 })
+
+# ---------- CHROME AND AIDA64 CHECKBOXES ----------
+# Note: These checkboxes are now handled by Apply-AllTweaks function
+# They no longer install immediately when checked - installation happens when "Apply All Tweaks" is clicked
 
 # ---------- UI POLISH ----------
 $Form.Font = New-Object System.Drawing.Font("Segoe UI", 10)
