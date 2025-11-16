@@ -534,18 +534,49 @@ function Revert-InterfaceTweaks {
 
 # ---------- PERFORMANCE TWEAKS FUNCTIONS ----------
 # Individual performance tweak functions
-function Apply-PerformanceTweak-0 { # Disable all UI animations
-    $visualSettings = @(
-        "MinAnimate", "MenuShowDelay", "WindowAnimation", "ListviewAlphaSelect",
-        "TooltipAnimation", "ComboBoxAnimation", "CursorShadow", "DragFullWindows",
-        "MenuAnimation", "SelectionFade", "TaskbarAnimations"
-    )
-    foreach ($setting in $visualSettings) {
-        try {
-            Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name $setting -Value 0 -Type String -ErrorAction SilentlyContinue
-        } catch {}
+function Apply-PerformanceTweak-0 {  # Disable all UI animations
+    Write-Log "Disabling UI animations..."
+
+    # Desktop effects
+    $desktopSettings = @{
+        "MenuShowDelay"     = 0
+        "DragFullWindows"   = 0
+        "CursorShadow"      = 0
     }
-    Write-Log "All UI animations disabled"
+
+    foreach ($name in $desktopSettings.Keys) {
+        Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name $name -Value $desktopSettings[$name] -Type String -ErrorAction SilentlyContinue
+    }
+
+    # Visual effects (Animation key)
+    $visualFX = @(
+        "AnimateMinimizeMaximize",
+        "ComboBoxAnimation",
+        "ListBoxSmoothScrolling",
+        "ListviewAlphaSelect",
+        "MenuAnimation",
+        "SelectionFade",
+        "TooltipAnimation",
+        "TaskbarAnimations"
+    )
+
+    foreach ($key in $visualFX) {
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" -Name $key -Value 0 -Type String -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"      -Name $key -Value 0 -Type DWORD  -ErrorAction SilentlyContinue
+    }
+
+    # System animations
+    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarAnimations" -Value 0 -Type DWORD -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path "HKCU:\Accessibility" -Name "Animation" -Value 0 -Type DWORD -ErrorAction SilentlyContinue
+
+    # Disable window animations in metrics
+    Set-ItemProperty -Path "HKCU:\Control Panel\Desktop\WindowMetrics" -Name "MinAnimate" -Value 0 -Type String -ErrorAction SilentlyContinue
+
+    # DISABLE ADVANCED WINDOWS ANIMATION FLAGS (Required for Win10/11)
+    New-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Control Panel\Animation" -Force | Out-Null
+    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Control Panel\Animation" -Name "MinAnimate" -Value 0 -Type String -ErrorAction SilentlyContinue
+
+    Write-Log "UI animations fully disabled"
 }
 
 function Apply-PerformanceTweak-1 { # Disable transparency effects
