@@ -3681,7 +3681,6 @@ $BtnRestore.Add_Click({
 })
 
 
-# ---------- UI POLISH ----------
 $Form.Font = New-Object System.Drawing.Font("Segoe UI", 10)
 $Tabs.Font = New-Object System.Drawing.Font("Segoe UI", 10)
 
